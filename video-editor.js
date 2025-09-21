@@ -9,13 +9,57 @@ class VideoEditor {
         this.isProcessing = false;
         this.processedVideo = null;
         
+        // 原始视频信息
+        this.originalVideoInfo = {
+            bitrate: 0,
+            estimatedBitrate: 0,
+            width: 0,
+            height: 0,
+            frameRate: 0,
+            codec: 'unknown',
+            format: 'unknown'
+        };
+        
+        // 视频对比功能
+        this.videoComparison = null;
+        this.comparisonUI = null;
+        this.comparisonHelper = null;
+        
         this.initializeElements();
         this.setupEventListeners();
         this.initializeFFmpeg();
+        // 异步初始化视频对比功能
+        this.initializeVideoComparison().catch(error => {
+            console.error('❌ 视频对比功能初始化失败:', error);
+        });
+        
+        // 标记初始化状态
+        this.comparisonInitialized = false;
     }
 
     // 初始化DOM元素
     initializeElements() {
+        // 检查是否在正确的页面环境中
+        const requiredElements = [
+            'uploadArea', 'videoFileInput', 'previewVideo', 'noVideoPlaceholder',
+            'timelineSlider', 'startHandle', 'endHandle', 'startTimeDisplay',
+            'endTimeDisplay', 'cropDuration', 'processVideoBtn', 'downloadBtn',
+            'replaceSourceBtn', 'compareBtn', 'resetBtn', 'outputFormat',
+            'qualityLevel', 'replacementOptions', 'originalDurationDisplay',
+            'processedDurationDisplay', 'processingStatus', 'progressFill',
+            'timelineRange', 'previewOverlay', 'previewText', 'processedFileInfo',
+            'processedFileSize', 'compressionRatio', 'fixedEndTime'
+        ];
+        
+        // 检查关键元素是否存在
+        const missingElements = requiredElements.filter(id => !document.getElementById(id));
+        if (missingElements.length > 0) {
+            console.warn('⚠️ 检测到非完整页面环境，部分DOM元素缺失:', missingElements);
+            console.warn('⚠️ VideoEditor将在受限模式下运行');
+            this.isLimitedMode = true;
+            return;
+        }
+        
         this.uploadArea = document.getElementById('uploadArea');
         this.videoFileInput = document.getElementById('videoFileInput');
         this.previewVideo = document.getElementById('previewVideo');
@@ -29,6 +73,7 @@ class VideoEditor {
         this.processVideoBtn = document.getElementById('processVideoBtn');
         this.downloadBtn = document.getElementById('downloadBtn');
         this.replaceSourceBtn = document.getElementById('replaceSourceBtn');
+        this.compareBtn = document.getElementById('compareBtn');
         this.resetBtn = document.getElementById('resetBtn');
         this.outputFormatSelect = document.getElementById('outputFormat');
         this.qualityLevelSelect = document.getElementById('qualityLevel');
@@ -44,6 +89,11 @@ class VideoEditor {
         this.processedFileSize = document.getElementById('processedFileSize');
         this.compressionRatio = document.getElementById('compressionRatio');
         this.fixedEndTime = document.getElementById('fixedEndTime');
+        
+        // 视频对比相关元素
+        this.comparisonContainer = document.getElementById('comparisonContainer');
+        this.showComparisonBtn = document.getElementById('showComparisonBtn');
+        this.hideComparisonBtn = document.getElementById('hideComparisonBtn');
         
         // 检查handle是否正确初始化
         if (!this.startHandle || !this.endHandle || !this.timelineSlider) {
@@ -65,6 +115,12 @@ class VideoEditor {
 
     // 设置事件监听器
     setupEventListeners() {
+        // 如果在受限模式下，跳过事件监听器设置
+        if (this.isLimitedMode) {
+            console.log('⚠️ 受限模式下跳过事件监听器设置');
+            return;
+        }
+        
         // 文件上传
         this.uploadArea.addEventListener('click', () => {
             this.videoFileInput.click();
@@ -115,11 +171,20 @@ class VideoEditor {
             this.replaceSourceFile();
         });
         
+        this.compareBtn.addEventListener('click', () => {
+            this.compareOriginalAndProcessed();
+        });
+        
         this.resetBtn.addEventListener('click', () => {
             this.resetEditor();
         });
         
         // 替换选项对话框事件
+        document.getElementById('overwriteOriginalBtn').addEventListener('click', () => {
+            this.hideReplacementOptions();
+            this.overwriteOriginalFile();
+        });
+        
         document.getElementById('downloadNewBtn').addEventListener('click', () => {
             this.hideReplacementOptions();
             this.downloadNewFile();
@@ -149,22 +214,103 @@ class VideoEditor {
             // 等待FFmpeg库加载完成
             await this.waitForFFmpeg();
             
-            // 检查FFmpeg是否可用
-            if (typeof window.FFmpeg === 'undefined' || typeof window.FFmpegUtil === 'undefined') {
+            // 检查FFmpeg是否可用 - 使用FFmpegWASM对象
+            if (typeof window.FFmpegWASM === 'undefined') {
                 throw new Error('FFmpeg库未加载');
             }
             
-            const { FFmpeg } = window.FFmpeg;
-            const { fetchFile, toBlobURL } = window.FFmpegUtil;
+            const ffmpegWASM = window.FFmpegWASM;
+            
+            // 检查FFmpegWASM对象是否包含所需的功能
+            if (!ffmpegWASM.FFmpeg) {
+                throw new Error('FFmpeg类未找到');
+            }
+            
+            // 动态导入util库
+            let fetchFile, toBlobURL;
+            try {
+                const utilModule = await import('https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js');
+                fetchFile = utilModule.fetchFile;
+                toBlobURL = utilModule.toBlobURL;
+            } catch (error) {
+                console.error('❌ 无法加载FFmpeg util库:', error);
+                console.log('🔄 使用备用实现...');
+                
+                // 备用实现
+                fetchFile = async (file) => {
+                    if (typeof file === 'string') {
+                        if (file.startsWith('data:')) {
+                            // Base64 data URL
+                            const base64 = file.split(',')[1];
+                            const binaryString = atob(base64);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            return bytes;
+                        } else {
+                            // URL
+                            const response = await fetch(file);
+                            const arrayBuffer = await response.arrayBuffer();
+                            return new Uint8Array(arrayBuffer);
+                        }
+                    } else if (file instanceof File || file instanceof Blob) {
+                        const arrayBuffer = await file.arrayBuffer();
+                        return new Uint8Array(arrayBuffer);
+                    }
+                    throw new Error('Unsupported file type');
+                };
+                
+                toBlobURL = async (url, mimeType) => {
+                    const response = await fetch(url);
+                    const blob = await response.blob();
+                    return URL.createObjectURL(blob);
+                };
+            }
+            
+            const { FFmpeg } = ffmpegWASM;
             
             this.ffmpeg = new FFmpeg();
             
-            // 设置FFmpeg.wasm的路径
-            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-            await this.ffmpeg.load({
-                coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-            });
+            // 检查是否通过file://协议访问，如果是则直接使用Web API备用方案
+            if (window.location.protocol === 'file:') {
+                console.log('⚠️ 检测到file://协议访问，FFmpeg.wasm无法正常工作');
+                console.log('🔄 自动切换到Web API备用方案');
+                this.showProcessingStatus('检测到本地文件访问，使用Web API备用方案', 100);
+                this.useWebAPI = true;
+                return;
+            }
+            
+            // 设置FFmpeg.wasm的路径，使用测试确认可用的CDN源
+            const cdnSources = [
+                'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd',
+                'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd'
+            ];
+            
+            let loadSuccess = false;
+            let lastError = null;
+            
+            for (const baseURL of cdnSources) {
+                try {
+                    console.log(`🔄 尝试从 ${baseURL} 加载FFmpeg核心文件...`);
+                    await this.ffmpeg.load({
+                        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                    });
+                    console.log(`✅ 从 ${baseURL} 成功加载FFmpeg核心文件`);
+                    loadSuccess = true;
+                    break;
+                } catch (error) {
+                    console.warn(`⚠️ 从 ${baseURL} 加载失败:`, error.message);
+                    lastError = error;
+                    // 重置FFmpeg实例，准备尝试下一个CDN
+                    this.ffmpeg = new FFmpeg();
+                }
+            }
+            
+            if (!loadSuccess) {
+                throw new Error(`所有CDN源都无法访问FFmpeg核心文件。最后错误: ${lastError?.message}`);
+            }
             
             console.log('✅ FFmpeg.wasm 加载成功');
             this.hideProcessingStatus();
@@ -176,15 +322,158 @@ class VideoEditor {
         }
     }
 
+    // 初始化视频对比功能 - 简化版本
+    async initializeVideoComparison() {
+        try {
+            console.log('🔍 正在初始化视频对比功能...');
+            
+            // 检查FFmpegWASM是否可用（使用测试页面中成功的检查方式）
+            if (typeof window.FFmpegWASM === 'undefined') {
+                throw new Error('FFmpegWASM未加载');
+            }
+            
+            const ffmpegWASM = window.FFmpegWASM;
+            if (!ffmpegWASM.FFmpeg) {
+                throw new Error('FFmpeg类未找到');
+            }
+            
+            console.log('✅ FFmpegWASM和FFmpeg类可用');
+            
+            // 动态导入util库（使用测试页面中成功的导入方式）
+            let fetchFile, toBlobURL;
+            try {
+                const utilModule = await import('https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js');
+                fetchFile = utilModule.fetchFile;
+                toBlobURL = utilModule.toBlobURL;
+                console.log('✅ util库动态导入成功');
+            } catch (error) {
+                console.log('⚠️ util库动态导入失败，使用备用实现');
+                // 使用备用实现（从测试页面复制）
+                fetchFile = async (file) => {
+                    if (typeof file === 'string') {
+                        if (file.startsWith('data:')) {
+                            const base64 = file.split(',')[1];
+                            const binaryString = atob(base64);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            return bytes;
+                        } else {
+                            const response = await fetch(file);
+                            const arrayBuffer = await response.arrayBuffer();
+                            return new Uint8Array(arrayBuffer);
+                        }
+                    } else if (file instanceof File || file instanceof Blob) {
+                        const arrayBuffer = await file.arrayBuffer();
+                        return new Uint8Array(arrayBuffer);
+                    }
+                    throw new Error('Unsupported file type');
+                };
+                
+                toBlobURL = async (url, mimeType) => {
+                    const response = await fetch(url);
+                    const blob = await response.blob();
+                    return URL.createObjectURL(blob);
+                };
+            }
+            
+            // 直接使用全局变量，避免动态导入的CORS问题
+            console.log('📦 获取 VideoComparison...');
+            const VideoComparison = window.VideoComparison;
+            
+            console.log('📦 获取 VideoComparisonUI...');
+            const VideoComparisonUI = window.VideoComparisonUI;
+            
+            console.log('📦 获取 VideoComparisonHelper...');
+            const VideoComparisonHelper = window.VideoComparisonHelper;
+            
+            if (!VideoComparison) {
+                throw new Error('VideoComparison 类未找到');
+            }
+            
+            if (!VideoComparisonUI) {
+                throw new Error('VideoComparisonUI 类未找到');
+            }
+            
+            if (!VideoComparisonHelper) {
+                throw new Error('VideoComparisonHelper 类未找到');
+            }
+            
+            console.log('🔧 创建实例...');
+            this.videoComparison = new VideoComparison();
+            this.comparisonUI = new VideoComparisonUI();
+            this.comparisonHelper = new VideoComparisonHelper();
+            
+            // 初始化对比助手
+            console.log('🔧 初始化对比助手...');
+            await this.comparisonHelper.initialize();
+            
+            console.log('✅ 视频对比功能初始化成功');
+            this.comparisonInitialized = true;
+            
+        } catch (error) {
+            console.error('❌ 视频对比功能初始化失败:', error);
+            this.showComparisonError(error);
+            this.comparisonInitialized = false;
+        }
+    }
+
+    // 显示对比功能错误信息
+    showComparisonError(error) {
+        let errorMessage;
+        
+        if (error.message.includes('file://协议访问下FFmpeg.wasm无法正常工作')) {
+            errorMessage = `视频对比功能需要HTTP服务器支持\n\n当前通过本地文件访问，FFmpeg.wasm无法正常工作\n\n解决方案：\n1. 启动本地HTTP服务器\n2. 在终端运行：python3 -m http.server 8080\n3. 然后访问：http://localhost:8080/WebRecorder.html`;
+        } else {
+            errorMessage = `视频对比功能初始化失败：${error.message}\n\n请尝试：\n1. 刷新页面重试\n2. 检查网络连接\n3. 确保浏览器支持WebAssembly`;
+        }
+        
+        console.error('用户错误信息:', errorMessage);
+        alert(errorMessage);
+    }
+
+    // 等待对比功能初始化完成
+    async waitForComparisonInitialization() {
+        let attempts = 0;
+        const maxAttempts = 100; // 等待10秒
+        
+        while (attempts < maxAttempts) {
+            if (this.comparisonInitialized && this.comparisonHelper) {
+                console.log('✅ 对比功能初始化完成');
+                return;
+            }
+            
+            // 如果还没有开始初始化，启动初始化
+            if (!this.comparisonInitialized && !this.comparisonHelper) {
+                console.log('🔄 启动对比功能初始化...');
+                await this.initializeVideoComparison();
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        throw new Error('对比功能初始化超时');
+    }
+
     // 等待FFmpeg库加载
     async waitForFFmpeg() {
         let attempts = 0;
         const maxAttempts = 50; // 等待5秒
         
         while (attempts < maxAttempts) {
-            if (typeof window.FFmpeg !== 'undefined' && typeof window.FFmpegUtil !== 'undefined') {
-                return;
+            // 检查FFmpegWASM对象是否加载完成
+            if (typeof window.FFmpegWASM !== 'undefined') {
+                const ffmpegWASM = window.FFmpegWASM;
+                
+                // 检查是否包含FFmpeg类
+                if (ffmpegWASM.FFmpeg) {
+                    console.log('✅ FFmpeg库加载完成');
+                    return;
+                }
             }
+            
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
         }
@@ -208,10 +497,14 @@ class VideoEditor {
             this.previewVideo.style.display = 'block';
             this.noVideoPlaceholder.style.display = 'none';
             
-            // 等待视频加载完成获取时长
+            // 等待视频加载完成获取时长和码率信息
             await new Promise((resolve) => {
                 this.previewVideo.onloadedmetadata = () => {
                     this.videoDuration = this.previewVideo.duration;
+                    
+                    // 检测原始视频的码率信息
+                    this.detectOriginalVideoInfo();
+                    
                     this.updateTimeline();
                     resolve();
                 };
@@ -228,6 +521,64 @@ class VideoEditor {
         }
     }
 
+    // 检测原始视频信息
+    detectOriginalVideoInfo() {
+        if (!this.currentVideo || !this.previewVideo) return;
+        
+        try {
+            // 获取视频基本信息
+            this.originalVideoInfo.width = this.previewVideo.videoWidth;
+            this.originalVideoInfo.height = this.previewVideo.videoHeight;
+            this.originalVideoInfo.format = this.currentVideo.type || 'unknown';
+            
+            // 估算码率 (文件大小 * 8 / 时长)
+            this.originalVideoInfo.estimatedBitrate = Math.round((this.currentVideo.size * 8) / this.videoDuration);
+            
+            // 根据文件大小和时长估算实际码率
+            const fileSizeMB = this.currentVideo.size / (1024 * 1024);
+            const durationMinutes = this.videoDuration / 60;
+            this.originalVideoInfo.bitrate = Math.round((fileSizeMB * 8) / durationMinutes);
+            
+            console.log('📊 原始视频信息:');
+            console.log(`   分辨率: ${this.originalVideoInfo.width}x${this.originalVideoInfo.height}`);
+            console.log(`   格式: ${this.originalVideoInfo.format}`);
+            console.log(`   估算码率: ${Math.round(this.originalVideoInfo.estimatedBitrate / 1000)} kbps`);
+            console.log(`   文件大小: ${(this.currentVideo.size / (1024 * 1024)).toFixed(2)} MB`);
+            
+            // 根据原始码率设置默认质量
+            this.setDefaultQualityBasedOnOriginal();
+            
+        } catch (error) {
+            console.error('❌ 检测原始视频信息失败:', error);
+        }
+    }
+
+    // 根据原始视频信息设置默认质量
+    setDefaultQualityBasedOnOriginal() {
+        if (!this.qualityLevelSelect) return;
+        
+        // 默认使用"保持原始质量"选项，这是用户最常用的需求
+        const recommendedQuality = 'original';
+        
+        // 设置默认质量
+        this.qualityLevelSelect.value = recommendedQuality;
+        
+        const estimatedBitrateKbps = Math.round(this.originalVideoInfo.estimatedBitrate / 1000);
+        console.log(`🎯 设置默认质量: ${recommendedQuality} (原始码率: ${estimatedBitrateKbps} kbps)`);
+        console.log(`💡 提示: 选择"保持原始质量"可以最大程度保持视频质量，避免码率下降`);
+    }
+
+    // 获取原始码率
+    getOriginalBitrate() {
+        if (!this.originalVideoInfo.estimatedBitrate) {
+            return '192k'; // 默认码率
+        }
+        
+        // 将码率转换为kbps格式
+        const bitrateKbps = Math.round(this.originalVideoInfo.estimatedBitrate / 1000);
+        return `${bitrateKbps}k`;
+    }
+
     // 重置视频状态
     resetVideoState() {
         // 重置处理后的视频
@@ -241,6 +592,7 @@ class VideoEditor {
         this.processVideoBtn.disabled = true;
         this.downloadBtn.disabled = true;
         this.replaceSourceBtn.disabled = true;
+        this.compareBtn.disabled = true;
         
         // 隐藏处理状态和文件信息
         this.hideProcessingStatus();
@@ -756,8 +1108,12 @@ class VideoEditor {
             this.showProcessingStatus('视频处理完成！', 100);
             this.downloadBtn.disabled = false;
             this.replaceSourceBtn.disabled = false;
+            this.compareBtn.disabled = false;
             this.updateDownloadButton();
             this.showFileSizeInfo();
+            
+            // 自动显示对比结果
+            await this.autoShowComparison();
             
         } catch (error) {
             console.error('❌ 视频处理失败:', error);
@@ -781,38 +1137,93 @@ class VideoEditor {
         
         const { fetchFile } = window.FFmpegUtil;
         
+        // 检查是否有原生FFmpeg可用 (未来扩展)
+        const hasNativeFFmpeg = await this.checkNativeFFmpeg();
+        if (hasNativeFFmpeg) {
+            console.log('🚀 检测到原生FFmpeg，使用高性能处理');
+            return await this.processVideoWithNativeFFmpeg();
+        }
+        
+        console.log('⚠️ 使用FFmpeg.wasm处理 (性能受限)');
+        console.log('💡 提示: 考虑使用原生应用获得更好性能');
+        
         // 获取输出格式设置
         const outputFormat = this.getOutputFormat();
         const outputFile = `output.${outputFormat.extension}`;
         
-        // 写入输入文件
-        await this.ffmpeg.writeFile('input.mp4', await fetchFile(this.currentVideo));
+        // 写入输入文件 - 添加进度反馈
+        this.showProcessingStatus('正在读取视频文件...', 10);
+        const inputData = await fetchFile(this.currentVideo);
+        this.showProcessingStatus('正在写入临时文件...', 15);
+        await this.ffmpeg.writeFile('input.mp4', inputData);
         this.updateProgress(20);
         
-        // 构建FFmpeg命令
+        // 清理输入数据引用，释放内存
+        inputData = null;
+        
+        // 构建FFmpeg命令 - 质量保持的速度优化
+        const speedOptimizations = [
+            '-threads', '0',                    // 使用所有可用线程
+            '-movflags', '+faststart',          // 快速启动
+            '-avoid_negative_ts', 'make_zero',  // 避免时间戳问题
+            '-fflags', '+genpts',               // 生成时间戳
+            '-max_muxing_queue_size', '1024',   // 适度的缓冲队列
+            '-analyzeduration', '2000000',      // 适度的分析时间，保证质量
+            '-probesize', '2000000',            // 适度的探测大小，保证质量
+            '-hwaccel', 'auto',                 // 自动硬件加速（如果可用）
+            '-strict', 'experimental'           // 允许实验性功能
+        ];
+        
         const command = [
             '-i', 'input.mp4',
             '-ss', this.startTime.toString(),
             '-t', (this.endTime - this.startTime).toString(),
+            ...speedOptimizations,
             ...outputFormat.ffmpegArgs,
             outputFile
         ];
         
         console.log('🎬 FFmpeg命令:', command.join(' '));
         
-        // 执行裁剪、压缩和格式转换命令
+        // 执行裁剪、压缩和格式转换命令 - 添加详细进度反馈
+        this.showProcessingStatus('正在处理视频...', 30);
+        const startTime = Date.now();
+        
+        // 开始性能监控
+        const performanceInfo = this.startPerformanceMonitoring();
+        
         await this.ffmpeg.exec(command);
+        const processingTime = Date.now() - startTime;
+        const videoDuration = this.endTime - this.startTime;
+        const speedRatio = videoDuration / (processingTime / 1000);
+        
+        // 停止性能监控
+        this.stopPerformanceMonitoring(performanceInfo);
+        
+        console.log(`⚡ 视频处理统计:`);
+        console.log(`   处理耗时: ${(processingTime / 1000).toFixed(2)}秒`);
+        console.log(`   视频时长: ${videoDuration.toFixed(2)}秒`);
+        console.log(`   处理速度: ${speedRatio.toFixed(2)}x (${speedRatio > 1 ? '实时' : '慢于实时'})`);
+        console.log(`   质量模式: ${quality} (CRF: ${qualityConfig.crf})`);
+        console.log(`   资源使用: 主要消耗CPU，建议监控活动监视器中的CPU使用率`);
+        
         this.updateProgress(80);
         
         // 读取输出文件
+        this.showProcessingStatus('正在读取输出文件...', 85);
         const data = await this.ffmpeg.readFile(outputFile);
-        this.updateProgress(100);
+        this.updateProgress(95);
         
         this.processedVideo = new Blob([data.buffer], { type: outputFormat.mimeType });
         
-        // 清理临时文件
+        // 清理临时文件和内存
+        this.showProcessingStatus('正在清理临时文件...', 98);
         await this.ffmpeg.deleteFile('input.mp4');
         await this.ffmpeg.deleteFile(outputFile);
+        
+        // 清理数据引用，释放内存
+        data = null;
+        this.updateProgress(100);
     }
 
     // 获取输出格式配置
@@ -820,68 +1231,413 @@ class VideoEditor {
         const format = this.outputFormatSelect.value;
         const quality = this.qualityLevelSelect.value;
         
-        // 质量设置
+        // 质量设置 - 保持质量的前提下优化速度
         const qualitySettings = {
-            high: { crf: '18', preset: 'slow', bitrate: '192k' },
-            medium: { crf: '23', preset: 'medium', bitrate: '128k' },
-            low: { crf: '28', preset: 'fast', bitrate: '96k' }
+            original: {
+                // 保持原始质量设置
+                crf: '15',                // 使用更低的CRF值保持高质量
+                preset: 'slow',           // 使用slow预设获得最佳质量
+                bitrate: this.getOriginalBitrate(), // 使用原始码率
+                tune: 'film',             // 针对视频内容优化
+                profile: 'high',          // 使用高质量配置文件
+                level: '4.1',             // 使用较高的编码级别
+                copyOriginal: true        // 标记为保持原始质量
+            },
+            high: { 
+                crf: '18', 
+                preset: 'fast',           // 使用fast预设，平衡质量和速度
+                bitrate: '192k',
+                tune: 'film',             // 针对视频内容优化
+                profile: 'high',          // 使用高质量配置文件
+                level: '4.1'              // 使用较高的编码级别
+            },
+            medium: { 
+                crf: '23', 
+                preset: 'faster',         // 使用faster预设
+                bitrate: '128k',
+                tune: 'film',
+                profile: 'main',          // 使用标准配置文件
+                level: '4.0'              // 使用标准编码级别
+            },
+            low: { 
+                crf: '28', 
+                preset: 'veryfast',       // 使用veryfast预设
+                bitrate: '96k',
+                tune: 'film',
+                profile: 'baseline',      // 使用基础配置文件
+                level: '3.1'              // 使用较低编码级别
+            }
         };
         
         const qualityConfig = qualitySettings[quality];
         
-        // 格式配置
+        // 格式配置 - 质量保持的速度优化
         const formatConfigs = {
             mp4: {
                 extension: 'mp4',
                 mimeType: 'video/mp4',
-                ffmpegArgs: [
-                    '-c:v', 'libx264',
-                    '-crf', qualityConfig.crf,
-                    '-preset', qualityConfig.preset,
-                    '-c:a', 'aac',
-                    '-b:a', qualityConfig.bitrate,
-                    '-movflags', '+faststart'
-                ]
+                ffmpegArgs: this.generateFFmpegArgs(format, qualityConfig)
             },
             webm: {
                 extension: 'webm',
                 mimeType: 'video/webm',
-                ffmpegArgs: [
-                    '-c:v', 'libvpx-vp9',
-                    '-crf', qualityConfig.crf,
-                    '-b:v', '0',  // VP9使用CRF模式
-                    '-c:a', 'libopus',
-                    '-b:a', qualityConfig.bitrate
-                ]
+                ffmpegArgs: this.generateFFmpegArgs(format, qualityConfig)
             },
             avi: {
                 extension: 'avi',
                 mimeType: 'video/avi',
-                ffmpegArgs: [
-                    '-c:v', 'libx264',
-                    '-crf', qualityConfig.crf,
-                    '-preset', qualityConfig.preset,
-                    '-c:a', 'mp3',
-                    '-b:a', qualityConfig.bitrate
-                ]
+                ffmpegArgs: this.generateFFmpegArgs(format, qualityConfig)
             },
             mov: {
                 extension: 'mov',
                 mimeType: 'video/quicktime',
-                ffmpegArgs: [
-                    '-c:v', 'libx264',
-                    '-crf', qualityConfig.crf,
-                    '-preset', qualityConfig.preset,
-                    '-c:a', 'aac',
-                    '-b:a', qualityConfig.bitrate,
-                    '-movflags', '+faststart'
-                ]
+                ffmpegArgs: this.generateFFmpegArgs(format, qualityConfig)
             }
         };
         
         const config = formatConfigs[format];
         console.log(`🎬 选择格式: ${format.toUpperCase()}, 质量: ${quality}, CRF: ${qualityConfig.crf}`);
         return config;
+    }
+
+    // 生成FFmpeg参数
+    generateFFmpegArgs(format, qualityConfig) {
+        const baseArgs = [];
+        
+        // 根据格式选择编码器
+        if (format === 'webm') {
+            baseArgs.push('-c:v', 'libvpx-vp9');
+            baseArgs.push('-crf', qualityConfig.crf);
+            baseArgs.push('-b:v', '0');  // VP9使用CRF模式
+            baseArgs.push('-c:a', 'libopus');
+            baseArgs.push('-b:a', qualityConfig.bitrate);
+            
+            if (qualityConfig.copyOriginal) {
+                // 保持原始质量时使用更保守的设置
+                baseArgs.push('-speed', '1');  // 更慢但质量更好
+                baseArgs.push('-threads', '0');
+                baseArgs.push('-tile-columns', '1');
+                baseArgs.push('-frame-parallel', '0');
+                baseArgs.push('-lag-in-frames', '25');
+                baseArgs.push('-error-resilient', '1');
+            } else {
+                // 标准设置
+                baseArgs.push('-speed', '2');
+                baseArgs.push('-threads', '0');
+                baseArgs.push('-tile-columns', '2');
+                baseArgs.push('-frame-parallel', '1');
+                baseArgs.push('-lag-in-frames', '16');
+                baseArgs.push('-error-resilient', '1');
+            }
+        } else {
+            // H.264编码器 (MP4, AVI, MOV)
+            baseArgs.push('-c:v', 'libx264');
+            baseArgs.push('-crf', qualityConfig.crf);
+            baseArgs.push('-preset', qualityConfig.preset);
+            baseArgs.push('-tune', qualityConfig.tune);
+            baseArgs.push('-profile:v', qualityConfig.profile);
+            baseArgs.push('-level', qualityConfig.level);
+            
+            // 音频编码器
+            if (format === 'avi') {
+                baseArgs.push('-c:a', 'mp3');
+            } else {
+                baseArgs.push('-c:a', 'aac');
+            }
+            baseArgs.push('-b:a', qualityConfig.bitrate);
+            
+            // 格式特定参数
+            if (format === 'mp4' || format === 'mov') {
+                baseArgs.push('-movflags', '+faststart');
+            }
+            
+            if (qualityConfig.copyOriginal) {
+                // 保持原始质量时使用更保守的设置
+                baseArgs.push('-threads', '0');
+                baseArgs.push('-x264opts', 'me=umh:subme=9:me_range=24:ref=5:bframes=3:b_adapt=2:direct=auto:weightb=1:weightp=2:aq-mode=3:aq-strength=1.0:psy-rd=1.0:0.15:deblock=0:0');
+                baseArgs.push('-g', '120');  // 更短的关键帧间隔
+                baseArgs.push('-keyint_min', '12');
+                baseArgs.push('-bf', '5');   // 更多B帧
+                baseArgs.push('-refs', '5'); // 更多参考帧
+            } else {
+                // 标准设置
+                baseArgs.push('-threads', '0');
+                baseArgs.push('-x264opts', 'me=hex:subme=6:me_range=16');
+                baseArgs.push('-g', '250');
+                baseArgs.push('-keyint_min', '25');
+                baseArgs.push('-bf', '3');
+                baseArgs.push('-refs', '3');
+                baseArgs.push('-aq-mode', '2');
+                baseArgs.push('-aq-strength', '1.0');
+                baseArgs.push('-psy-rd', '1.0:0.15');
+                baseArgs.push('-deblock', '0:0');
+            }
+        }
+        
+        return baseArgs;
+    }
+
+    // 开始性能监控
+    startPerformanceMonitoring() {
+        const performanceInfo = {
+            startTime: performance.now(),
+            startMemory: this.getMemoryUsage(),
+            monitoringInterval: null
+        };
+        
+        // 每2秒输出一次性能信息
+        performanceInfo.monitoringInterval = setInterval(() => {
+            const currentMemory = this.getMemoryUsage();
+            const elapsed = (performance.now() - performanceInfo.startTime) / 1000;
+            
+            // 检查FFmpeg状态
+            const ffmpegStatus = this.ffmpeg ? '已加载' : '未加载';
+            const isProcessing = this.isProcessing ? '处理中' : '空闲';
+            
+            console.log(`📊 处理状态: ${isProcessing} | 耗时: ${elapsed.toFixed(1)}s | 内存: ${currentMemory.toFixed(1)}MB | FFmpeg: ${ffmpegStatus}`);
+            
+            // 如果CPU使用率不高，给出诊断建议
+            if (elapsed > 10 && currentMemory < 100) {
+                console.log(`⚠️ 诊断: 处理时间较长但资源使用率低，可能原因:`);
+                console.log(`   1. FFmpeg.wasm性能限制 (WebAssembly比原生慢)`);
+                console.log(`   2. 浏览器沙盒限制`);
+                console.log(`   3. 单线程处理限制`);
+                console.log(`   4. 检查活动监视器中的所有浏览器进程`);
+            }
+        }, 2000);
+        
+        console.log(`🔍 开始性能监控 - 主要消耗CPU资源`);
+        console.log(`💡 提示: 在活动监视器中监控浏览器进程的CPU使用率`);
+        
+        // 输出系统诊断信息
+        this.outputSystemDiagnostics();
+        
+        return performanceInfo;
+    }
+    
+    // 停止性能监控
+    stopPerformanceMonitoring(performanceInfo) {
+        if (performanceInfo.monitoringInterval) {
+            clearInterval(performanceInfo.monitoringInterval);
+        }
+        
+        const totalTime = (performance.now() - performanceInfo.startTime) / 1000;
+        const endMemory = this.getMemoryUsage();
+        const memoryDiff = endMemory - performanceInfo.startMemory;
+        
+        console.log(`📊 性能监控结束:`);
+        console.log(`   总耗时: ${totalTime.toFixed(2)}秒`);
+        console.log(`   内存变化: ${memoryDiff > 0 ? '+' : ''}${memoryDiff.toFixed(1)}MB`);
+        console.log(`   当前内存: ${endMemory.toFixed(1)}MB`);
+    }
+    
+    // 获取内存使用情况
+    getMemoryUsage() {
+        if (performance.memory) {
+            return performance.memory.usedJSHeapSize / 1024 / 1024; // 转换为MB
+        }
+        return 0;
+    }
+    
+    // 输出系统诊断信息
+    outputSystemDiagnostics() {
+        console.log(`🔧 系统诊断信息:`);
+        
+        // 浏览器信息
+        const userAgent = navigator.userAgent;
+        const isChrome = userAgent.includes('Chrome');
+        const isSafari = userAgent.includes('Safari') && !userAgent.includes('Chrome');
+        const isFirefox = userAgent.includes('Firefox');
+        
+        console.log(`   浏览器: ${isChrome ? 'Chrome' : isSafari ? 'Safari' : isFirefox ? 'Firefox' : '其他'}`);
+        
+        // 硬件信息
+        const cores = navigator.hardwareConcurrency || '未知';
+        console.log(`   CPU核心数: ${cores}`);
+        
+        // 内存信息
+        const memory = this.getMemoryUsage();
+        console.log(`   当前内存使用: ${memory.toFixed(1)}MB`);
+        
+        // FFmpeg状态
+        const ffmpegLoaded = this.ffmpeg ? '已加载' : '未加载';
+        console.log(`   FFmpeg状态: ${ffmpegLoaded}`);
+        
+        // 视频信息
+        if (this.currentVideo) {
+            const fileSize = (this.currentVideo.size / 1024 / 1024).toFixed(1);
+            console.log(`   视频文件大小: ${fileSize}MB`);
+        }
+        
+        console.log(`📋 活动监视器检查清单:`);
+        console.log(`   1. 查看所有浏览器进程 (Chrome/Safari/Firefox)`);
+        console.log(`   2. 检查渲染进程 (Renderer Process)`);
+        console.log(`   3. 查看GPU进程 (如果存在)`);
+        console.log(`   4. 按CPU使用率排序，找到最活跃的进程`);
+        console.log(`   5. 如果CPU使用率低，可能是FFmpeg.wasm性能限制`);
+    }
+    
+    // 检查是否有原生FFmpeg可用
+    async checkNativeFFmpeg() {
+        // 检查是否在Electron环境中
+        if (window.electronAPI) {
+            try {
+                const hasFFmpeg = await window.electronAPI.checkFFmpeg();
+                if (hasFFmpeg) {
+                    console.log('🚀 检测到Electron环境 + 原生FFmpeg');
+                    return true;
+                }
+            } catch (error) {
+                console.log('⚠️ Electron环境检测失败:', error);
+            }
+        }
+        
+        // 检查WebCodecs API (未来技术)
+        if (window.VideoEncoder && window.VideoDecoder) {
+            console.log('🔮 检测到WebCodecs API (实验性)');
+            // 未来可以实现WebCodecs版本
+        }
+        
+        return false;
+    }
+    
+    // 使用原生FFmpeg处理视频
+    async processVideoWithNativeFFmpeg() {
+        if (!window.electronAPI) {
+            throw new Error('原生FFmpeg需要Electron环境');
+        }
+        
+        console.log('🚀 使用原生FFmpeg处理视频');
+        
+        try {
+            // 获取输出格式设置
+            const outputFormat = this.getOutputFormat();
+            const outputFile = `output.${outputFormat.extension}`;
+            
+            // 设置处理选项
+            const options = {
+                inputPath: 'input.mp4',  // 临时文件路径
+                outputPath: outputFile,
+                startTime: this.startTime,
+                duration: this.endTime - this.startTime,
+                format: this.outputFormatSelect.value,
+                quality: this.qualityLevelSelect.value,
+                crf: this.getOutputFormat().ffmpegArgs.find(arg => arg === '-crf')?.next || '23',
+                preset: this.getOutputFormat().ffmpegArgs.find(arg => arg === '-preset')?.next || 'faster'
+            };
+            
+            // 设置进度监听
+            window.electronAPI.onFFmpegProgress((data) => {
+                this.updateProgress(20 + (data.progress * 0.6)); // 20-80%范围
+                this.showProcessingStatus(`处理中... ${data.progress}%`, 20 + (data.progress * 0.6));
+            });
+            
+            // 调用原生FFmpeg处理
+            const result = await window.electronAPI.processVideo(options);
+            
+            if (result.success) {
+                console.log('✅ 原生FFmpeg处理完成');
+                this.updateProgress(100);
+                return result;
+            } else {
+                throw new Error('原生FFmpeg处理失败');
+            }
+            
+        } catch (error) {
+            console.error('❌ 原生FFmpeg处理错误:', error);
+            throw error;
+        } finally {
+            // 清理进度监听器
+            window.electronAPI.removeFFmpegProgressListener();
+        }
+    }
+    
+    // FFmpeg.wasm处理 (重命名原方法)
+    async processVideoWithFFmpegWasm() {
+        // 这里是原来的FFmpeg.wasm处理逻辑
+        // 为了保持代码结构清晰，将原方法重命名
+        console.log('🔄 使用FFmpeg.wasm处理...');
+        
+        // 继续原有的处理逻辑...
+        const { fetchFile } = window.FFmpegUtil;
+        
+        // 获取输出格式设置
+        const outputFormat = this.getOutputFormat();
+        const outputFile = `output.${outputFormat.extension}`;
+        
+        // 写入输入文件 - 添加进度反馈
+        this.showProcessingStatus('正在读取视频文件...', 10);
+        const inputData = await fetchFile(this.currentVideo);
+        this.showProcessingStatus('正在写入临时文件...', 15);
+        await this.ffmpeg.writeFile('input.mp4', inputData);
+        this.updateProgress(20);
+        
+        // 清理输入数据引用，释放内存
+        inputData = null;
+        
+        // 构建FFmpeg命令 - 质量保持的速度优化
+        const speedOptimizations = [
+            '-threads', '0',                    // 使用所有可用线程
+            '-movflags', '+faststart',          // 快速启动
+            '-avoid_negative_ts', 'make_zero',  // 避免时间戳问题
+            '-fflags', '+genpts',               // 生成时间戳
+            '-max_muxing_queue_size', '1024',   // 适度的缓冲队列
+            '-analyzeduration', '2000000',      // 适度的分析时间，保证质量
+            '-probesize', '2000000',            // 适度的探测大小，保证质量
+            '-hwaccel', 'auto',                 // 自动硬件加速（如果可用）
+            '-strict', 'experimental'           // 允许实验性功能
+        ];
+        
+        const command = [
+            '-i', 'input.mp4',
+            '-ss', this.startTime.toString(),
+            '-t', (this.endTime - this.startTime).toString(),
+            ...speedOptimizations,
+            ...outputFormat.ffmpegArgs,
+            outputFile
+        ];
+        
+        console.log('🎬 FFmpeg命令:', command.join(' '));
+        
+        // 执行裁剪、压缩和格式转换命令 - 添加详细进度反馈
+        this.showProcessingStatus('正在处理视频...', 30);
+        const startTime = Date.now();
+        
+        // 开始性能监控
+        const performanceInfo = this.startPerformanceMonitoring();
+        
+        await this.ffmpeg.exec(command);
+        const processingTime = Date.now() - startTime;
+        const videoDuration = this.endTime - this.startTime;
+        const speedRatio = videoDuration / (processingTime / 1000);
+        
+        // 停止性能监控
+        this.stopPerformanceMonitoring(performanceInfo);
+        
+        console.log(`⚡ 视频处理统计:`);
+        console.log(`   处理耗时: ${(processingTime / 1000).toFixed(2)}秒`);
+        console.log(`   视频时长: ${videoDuration.toFixed(2)}秒`);
+        console.log(`   处理速度: ${speedRatio.toFixed(2)}x (${speedRatio > 1 ? '实时' : '慢于实时'})`);
+        console.log(`   质量模式: ${this.qualityLevelSelect.value} (CRF: ${this.getOutputFormat().ffmpegArgs.find(arg => arg === '-crf')?.next || '23'})`);
+        console.log(`   资源使用: 主要消耗CPU，建议监控活动监视器中的CPU使用率`);
+        
+        this.updateProgress(80);
+        
+        // 读取输出文件
+        this.showProcessingStatus('正在读取输出文件...', 85);
+        const data = await this.ffmpeg.readFile(outputFile);
+        this.updateProgress(95);
+        
+        this.processedVideo = new Blob([data.buffer], { type: outputFormat.mimeType });
+        
+        // 清理临时文件和内存
+        this.showProcessingStatus('正在清理临时文件...', 98);
+        await this.ffmpeg.deleteFile('input.mp4');
+        await this.ffmpeg.deleteFile(outputFile);
+        
+        // 清理数据引用，释放内存
+        data = null;
+        this.updateProgress(100);
     }
 
     // 使用Web API处理视频（备用方案）
@@ -1007,8 +1763,27 @@ class VideoEditor {
         this.originalDurationDisplay.textContent = originalDuration;
         this.processedDurationDisplay.textContent = processedDuration;
         
+        // 检查浏览器兼容性并更新按钮状态
+        this.updateOverwriteButtonState();
+        
         // 显示对话框
         this.replacementOptions.style.display = 'flex';
+    }
+
+    // 更新覆盖按钮状态
+    updateOverwriteButtonState() {
+        const overwriteBtn = document.getElementById('overwriteOriginalBtn');
+        const isSupported = window.showOpenFilePicker && window.showSaveFilePicker;
+        
+        if (isSupported) {
+            overwriteBtn.disabled = false;
+            overwriteBtn.textContent = '⚡ 真正覆盖原文件（Chrome/Edge）';
+            overwriteBtn.title = '使用 File System Access API 真正覆盖原文件';
+        } else {
+            overwriteBtn.disabled = true;
+            overwriteBtn.textContent = '⚡ 真正覆盖原文件（不支持当前浏览器）';
+            overwriteBtn.title = '当前浏览器不支持 File System Access API，请使用 Chrome 或 Edge';
+        }
     }
 
     // 隐藏替换选项对话框
@@ -1016,7 +1791,77 @@ class VideoEditor {
         this.replacementOptions.style.display = 'none';
     }
 
-    // 方式1: 下载新文件（推荐）
+    // 方式1: 真正覆盖原文件（Chrome/Edge）
+    async overwriteOriginalFile() {
+        if (!this.processedVideo) {
+            this.showError('没有处理后的视频文件');
+            return;
+        }
+        
+        // 检查浏览器支持
+        if (!window.showOpenFilePicker || !window.showSaveFilePicker) {
+            console.warn('⚠️ 当前浏览器不支持 File System Access API，降级为下载模式');
+            this.downloadNewFile();
+            return;
+        }
+        
+        try {
+            this.showProcessingStatus('请选择要覆盖的原文件...', 20);
+            
+            // 让用户选择原文件
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Video files',
+                    accept: {
+                        'video/*': ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv']
+                    }
+                }],
+                excludeAcceptAllOption: false,
+                multiple: false
+            });
+            
+            this.showProcessingStatus('正在检查文件权限...', 40);
+            
+            // 检查写权限
+            const permission = await fileHandle.requestPermission({ mode: 'readwrite' });
+            if (permission !== 'granted') {
+                throw new Error('没有文件写入权限，请重新选择文件并授权');
+            }
+            
+            this.showProcessingStatus('正在覆盖文件...', 60);
+            
+            // 创建可写流并覆盖文件
+            const writable = await fileHandle.createWritable();
+            await writable.write(this.processedVideo);
+            await writable.close();
+            
+            this.showProcessingStatus('文件覆盖成功！', 100);
+            console.log('✅ 原文件已成功覆盖');
+            
+            // 更新预览
+            this.updatePreviewWithNewVideo();
+            
+            // 显示成功消息
+            setTimeout(() => {
+                alert('✅ 文件覆盖成功！\n\n原文件已被处理后的视频完全替换。');
+            }, 500);
+            
+        } catch (error) {
+            console.error('❌ 文件覆盖失败:', error);
+            
+            if (error.name === 'AbortError') {
+                this.showProcessingStatus('用户取消了操作', 0);
+                console.log('👤 用户取消了文件选择');
+            } else {
+                this.showError(`文件覆盖失败: ${error.message}`);
+                console.log('⚠️ 降级为下载模式');
+                // 降级为下载模式
+                this.downloadNewFile();
+            }
+        }
+    }
+
+    // 方式2: 下载新文件（推荐）
     downloadNewFile() {
         const originalFileName = this.getOriginalFileName();
         const newFileName = this.generateReplacementFileName(originalFileName);
@@ -1268,9 +2113,10 @@ class VideoEditor {
         
         // 基础处理速度 (MB/分钟)
         const baseSpeed = {
-            high: 20,    // CRF 18, slow
-            medium: 40,  // CRF 23, medium  
-            low: 80      // CRF 28, fast
+            original: 15,  // CRF 15, slow - 保持原始质量，处理较慢
+            high: 20,      // CRF 18, fast
+            medium: 40,    // CRF 23, faster  
+            low: 80        // CRF 28, veryfast
         };
         
         // 格式调整系数
@@ -1282,8 +2128,16 @@ class VideoEditor {
         };
         
         // 计算预估时间
-        const baseTime = (fileSizeMB / baseSpeed[quality]) * (cropDuration / this.videoDuration);
-        const adjustedTime = baseTime * formatMultiplier[format];
+        const speed = baseSpeed[quality] || baseSpeed.high; // 如果质量选项不存在，使用高质量作为默认值
+        const multiplier = formatMultiplier[format] || 1.0; // 如果格式不存在，使用默认值
+        
+        const baseTime = (fileSizeMB / speed) * (cropDuration / this.videoDuration);
+        const adjustedTime = baseTime * multiplier;
+        
+        // 检查计算结果是否有效
+        if (isNaN(adjustedTime) || adjustedTime <= 0) {
+            return '计算中...';
+        }
         
         // 转换为可读格式
         if (adjustedTime < 1) {
@@ -1301,4 +2155,150 @@ class VideoEditor {
     showError(message) {
         alert('错误: ' + message);
     }
+
+    // 显示/隐藏对比界面
+    toggleComparison() {
+        if (this.comparisonContainer) {
+            const isVisible = this.comparisonContainer.style.display !== 'none';
+            this.comparisonContainer.style.display = isVisible ? 'none' : 'block';
+            
+            if (this.showComparisonBtn) {
+                this.showComparisonBtn.style.display = isVisible ? 'block' : 'none';
+            }
+            if (this.hideComparisonBtn) {
+                this.hideComparisonBtn.style.display = isVisible ? 'none' : 'block';
+            }
+        }
+    }
+
+    // 自动显示对比结果
+    async autoShowComparison() {
+        if (!this.currentVideo || !this.processedVideo) {
+            console.log('⚠️ 无法自动显示对比：缺少视频文件');
+            return;
+        }
+
+        // 如果对比助手未初始化，尝试重新初始化
+        if (!this.comparisonHelper) {
+            console.log('⚠️ 对比功能未初始化，尝试重新初始化...');
+            try {
+                await this.initializeVideoComparison();
+                // 检查初始化是否成功
+                if (!this.comparisonHelper) {
+                    console.error('❌ 初始化后 comparisonHelper 仍为 null');
+                    return;
+                }
+            } catch (error) {
+                console.error('❌ 重新初始化对比功能失败:', error);
+                return;
+            }
+        }
+
+        try {
+            console.log('🔍 自动显示视频对比结果...');
+            
+            // 延迟一下，让用户看到处理完成的状态
+            setTimeout(async () => {
+                await this.comparisonHelper.quickCompare(
+                    this.currentVideo, 
+                    this.processedVideo,
+                    {
+                        title: '🎬 裁剪前后对比结果',
+                        onClose: () => {
+                            console.log('✅ 对比结果已关闭');
+                        }
+                    }
+                );
+            }, 1000); // 延迟1秒显示
+            
+        } catch (error) {
+            console.error('❌ 自动对比失败:', error);
+            // 不显示错误弹窗，避免打扰用户
+        }
+    }
+
+    // 对比原视频和处理后的视频
+    async compareOriginalAndProcessed() {
+        if (!this.currentVideo || !this.processedVideo) {
+            alert('请先上传视频并完成处理');
+            return;
+        }
+
+        // 显示加载状态
+        this.compareBtn.disabled = true;
+        this.compareBtn.textContent = '🔄 初始化中...';
+
+        try {
+            // 如果对比助手未初始化，尝试重新初始化
+            if (!this.comparisonHelper) {
+                console.log('⚠️ 对比功能未初始化，尝试重新初始化...');
+                this.compareBtn.textContent = '🔄 初始化对比功能...';
+                
+                // 直接重新初始化
+                await this.initializeVideoComparison();
+                
+                // 检查初始化是否成功
+                if (!this.comparisonHelper) {
+                    console.error('❌ 初始化失败，尝试直接创建助手实例...');
+                    console.log('window.VideoComparisonHelper:', typeof window.VideoComparisonHelper);
+                    
+                    if (typeof window.VideoComparisonHelper === 'undefined') {
+                        throw new Error('VideoComparisonHelper 类未加载，请刷新页面重试');
+                    }
+                    
+                    // 尝试直接创建助手实例
+                    try {
+                        this.comparisonHelper = new window.VideoComparisonHelper();
+                        await this.comparisonHelper.initialize();
+                        console.log('✅ 直接创建助手实例成功');
+                    } catch (createError) {
+                        console.error('❌ 直接创建助手实例失败:', createError);
+                        throw new Error('无法创建视频对比助手实例: ' + createError.message);
+                    }
+                }
+            }
+
+            console.log('🔍 开始对比原视频和处理后的视频...');
+            this.compareBtn.textContent = '🔄 分析中...';
+            
+            // 使用封装的对比助手
+            await this.comparisonHelper.quickCompare(
+                this.currentVideo, 
+                this.processedVideo,
+                {
+                    title: '🎬 裁剪前后对比结果',
+                    onClose: () => {
+                        console.log('✅ 对比结果已关闭');
+                    }
+                }
+            );
+            
+        } catch (error) {
+            console.error('❌ 视频对比失败:', error);
+            
+            // 根据错误类型显示不同的错误信息
+            let errorMessage = '视频对比失败';
+            if (error.message.includes('FFmpeg')) {
+                errorMessage = 'FFmpeg库加载失败，请刷新页面重试';
+            } else if (error.message.includes('网络') || error.message.includes('fetch')) {
+                errorMessage = '网络连接失败，请检查网络后重试';
+            } else if (error.message.includes('WebAssembly')) {
+                errorMessage = '浏览器不支持WebAssembly，请使用Chrome、Firefox或Edge浏览器';
+            } else {
+                errorMessage = `视频对比失败: ${error.message}`;
+            }
+            
+            alert(errorMessage);
+        } finally {
+            // 恢复按钮状态
+            this.compareBtn.disabled = false;
+            this.compareBtn.textContent = '📊 对比分析';
+        }
+    }
+
+}
+
+// 全局变量导出
+if (typeof window !== 'undefined') {
+    window.VideoEditor = VideoEditor;
 }

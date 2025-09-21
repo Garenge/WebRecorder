@@ -198,10 +198,12 @@
                             
                             <label for="qualityLevel">🎯 压缩质量:</label>
                             <select id="qualityLevel" class="quality-select">
+                                <option value="original" selected>保持原始质量 (推荐)</option>
                                 <option value="high">高质量 (文件较大)</option>
-                                <option value="medium" selected>标准质量 (推荐)</option>
+                                <option value="medium">标准质量</option>
                                 <option value="low">高压缩 (文件较小)</option>
                             </select>
+                            
                         </div>
                         
                         <div class="crop-buttons">
@@ -213,6 +215,9 @@
                             </button>
                             <button id="replaceSourceBtn" class="btn btn-warning" disabled>
                                 🔄 替换源文件
+                            </button>
+                            <button id="compareBtn" class="btn btn-info" disabled>
+                                📊 对比分析
                             </button>
                             <button id="resetBtn" class="btn btn-secondary">
                                 🔄 重置
@@ -242,6 +247,9 @@
                                     </div>
                                 </div>
                                 <div class="options-buttons">
+                                    <button class="option-btn" id="overwriteOriginalBtn">
+                                        ⚡ 真正覆盖原文件（Chrome/Edge）
+                                    </button>
                                     <button class="option-btn" id="downloadNewBtn">
                                         📥 下载新文件（推荐）
                                     </button>
@@ -256,10 +264,18 @@
                                     </button>
                                 </div>
                                 <div class="security-notice">
-                                    <small>⚠️ 由于浏览器安全限制，无法自动删除原文件，需要您手动删除。</small>
+                                    <small>⚠️ 真正覆盖功能仅支持 Chrome/Edge 浏览器，其他浏览器将自动降级为下载模式。</small>
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+                
+                <!-- 视频对比结果容器 -->
+                <div id="comparisonContainer" style="display: none; margin-top: 20px;">
+                    <div class="comparison-results">
+                        <h3>📊 视频对比分析结果</h3>
+                        <div id="comparisonContent"></div>
                     </div>
                 </div>
             </div>
@@ -268,10 +284,12 @@
 
     <!-- FFmpeg.wasm 库 -->
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
     
     <!-- 应用脚本 -->
     <script src="recorder-core.js?v=20241214"></script>
+    <script src="video-comparison.js?v=20241214"></script>
+    <script src="video-comparison-ui.js?v=20241214"></script>
+    <script src="video-comparison-helper.js?v=20241214"></script>
     <script src="video-editor.js?v=20241214"></script>
     <script src="app.js?v=20241214"></script>
 </body>

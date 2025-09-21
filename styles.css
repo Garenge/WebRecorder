@@ -677,6 +677,37 @@ h1 {
     padding: 8px;
 }
 
+/* 快速模式样式 */
+.speed-options {
+    margin-top: 10px;
+}
+
+.speed-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 6px;
+    transition: background-color 0.2s ease;
+}
+
+.speed-toggle:hover {
+    background-color: #f8f9fa;
+}
+
+.speed-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.toggle-text {
+    font-size: 14px;
+    color: #495057;
+    font-weight: 500;
+}
+
 /* 替换选项对话框样式 */
 .replacement-options {
     position: fixed;
@@ -772,6 +803,21 @@ h1 {
 .option-btn.cancel-btn:hover {
     background-color: #f8d7da;
     border-color: #c82333;
+}
+
+.option-btn:disabled {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    border-color: #dee2e6;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.option-btn:disabled:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: #dee2e6;
+    background-color: #f8f9fa;
 }
 
 .security-notice {
