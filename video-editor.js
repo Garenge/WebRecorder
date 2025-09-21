@@ -1245,6 +1245,9 @@ class VideoEditor {
     // 隐藏文件大小信息
     hideFileSizeInfo() {
         this.processedFileInfo.style.display = 'none';
+        // 重置文件大小和压缩率显示
+        this.processedFileSize.textContent = '-';
+        this.compressionRatio.textContent = '-';
     }
 
     // 显示错误信息
