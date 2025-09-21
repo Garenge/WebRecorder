@@ -28,6 +28,7 @@ class VideoEditor {
         this.cropDuration = document.getElementById('cropDuration');
         this.processVideoBtn = document.getElementById('processVideoBtn');
         this.downloadBtn = document.getElementById('downloadBtn');
+        this.replaceSourceBtn = document.getElementById('replaceSourceBtn');
         this.resetBtn = document.getElementById('resetBtn');
         this.outputFormatSelect = document.getElementById('outputFormat');
         this.qualityLevelSelect = document.getElementById('qualityLevel');
@@ -106,7 +107,11 @@ class VideoEditor {
         this.downloadBtn.addEventListener('click', () => {
             this.downloadVideo();
         });
-
+        
+        this.replaceSourceBtn.addEventListener('click', () => {
+            this.replaceSourceFile();
+        });
+        
         this.resetBtn.addEventListener('click', () => {
             this.resetEditor();
         });
@@ -688,6 +693,7 @@ class VideoEditor {
             console.log('✅ 视频处理完成');
             this.showProcessingStatus('视频处理完成！', 100);
             this.downloadBtn.disabled = false;
+            this.replaceSourceBtn.disabled = false;
             this.updateDownloadButton();
             this.showFileSizeInfo();
             
@@ -919,6 +925,79 @@ class VideoEditor {
         console.log(`📥 视频下载完成: ${selectedFormat.toUpperCase()}格式 (${quality}质量)`);
     }
 
+    // 替换源文件
+    replaceSourceFile() {
+        if (!this.processedVideo) {
+            this.showError('没有处理后的视频文件');
+            return;
+        }
+        
+        // 确认替换操作
+        const confirmMessage = `确定要用处理后的视频替换当前源文件吗？\n\n` +
+            `原文件时长: ${this.formatTime(this.videoDuration)}\n` +
+            `处理后时长: ${this.formatTime(this.endTime - this.startTime)}\n\n` +
+            `此操作不可撤销！`;
+            
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        try {
+            // 保存原始文件信息
+            const originalDuration = this.videoDuration;
+            const originalStartTime = this.startTime;
+            const originalEndTime = this.endTime;
+            
+            // 创建新的视频URL
+            const newVideoUrl = URL.createObjectURL(this.processedVideo);
+            
+            // 更新视频源
+            this.currentVideo = this.processedVideo;
+            this.previewVideo.src = newVideoUrl;
+            
+            // 重新加载视频以获取新的时长
+            this.previewVideo.onloadedmetadata = () => {
+                // 更新视频时长
+                this.videoDuration = this.previewVideo.duration;
+                
+                // 重置时间轴为整个视频
+                this.startTime = 0;
+                this.endTime = this.videoDuration;
+                
+                // 更新UI
+                this.updateHandlePosition('start');
+                this.updateHandlePosition('end');
+                this.updateTimelineRange();
+                this.updateTimeDisplays();
+                this.updateFixedEndTime();
+                
+                // 禁用替换按钮，因为现在没有处理后的文件了
+                this.replaceSourceBtn.disabled = true;
+                this.downloadBtn.disabled = true;
+                
+                // 显示成功消息
+                this.showProcessingStatus('源文件已成功替换！', 100);
+                
+                console.log(`🔄 源文件已替换:`);
+                console.log(`   原时长: ${this.formatTime(originalDuration)}`);
+                console.log(`   新时长: ${this.formatTime(this.videoDuration)}`);
+                console.log(`   裁剪范围: ${this.formatTime(originalStartTime)} - ${this.formatTime(originalEndTime)}`);
+                
+                // 清理处理后的视频引用
+                this.processedVideo = null;
+            };
+            
+            // 如果视频已经加载完成
+            if (this.previewVideo.readyState >= 1) {
+                this.previewVideo.onloadedmetadata();
+            }
+            
+        } catch (error) {
+            console.error('❌ 替换源文件失败:', error);
+            this.showError('替换源文件失败: ' + error.message);
+        }
+    }
+
     // 重置编辑器
     resetEditor() {
         if (confirm('确定要重置编辑器吗？这将清除所有数据。')) {
@@ -935,6 +1014,7 @@ class VideoEditor {
             
             this.processVideoBtn.disabled = true;
             this.downloadBtn.disabled = true;
+            this.replaceSourceBtn.disabled = true;
             this.hideProcessingStatus();
             this.hideFileSizeInfo();
             

@@ -249,6 +249,15 @@ h1 {
     background-color: #c82333;
 }
 
+.btn-warning {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.btn-warning:hover:not(:disabled) {
+    background-color: #e0a800;
+}
+
 .btn:disabled {
     background-color: #6c757d;
     cursor: not-allowed;
