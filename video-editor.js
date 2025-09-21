@@ -196,6 +196,10 @@ class VideoEditor {
     async loadVideo(file) {
         try {
             console.log('📁 加载视频文件:', file.name);
+            
+            // 重置所有状态
+            this.resetVideoState();
+            
             this.currentVideo = file;
             
             // 创建视频URL
@@ -213,13 +217,43 @@ class VideoEditor {
                 };
             });
             
+            // 启用处理按钮
             this.processVideoBtn.disabled = false;
+            
             console.log(`✅ 视频加载成功，时长: ${this.formatTime(this.videoDuration)}`);
             
         } catch (error) {
             console.error('❌ 视频加载失败:', error);
             this.showError('视频加载失败，请选择有效的视频文件');
         }
+    }
+
+    // 重置视频状态
+    resetVideoState() {
+        // 重置处理后的视频
+        this.processedVideo = null;
+        
+        // 重置时间设置
+        this.startTime = 0;
+        this.endTime = 0;
+        
+        // 重置按钮状态
+        this.processVideoBtn.disabled = true;
+        this.downloadBtn.disabled = true;
+        this.replaceSourceBtn.disabled = true;
+        
+        // 隐藏处理状态和文件信息
+        this.hideProcessingStatus();
+        this.hideFileSizeInfo();
+        
+        // 隐藏替换选项对话框
+        this.hideReplacementOptions();
+        
+        // 重置时间轴
+        this.timelineRange.style.left = '0%';
+        this.timelineRange.style.width = '100%';
+        
+        console.log('🔄 视频状态已重置');
     }
 
     // 设置时间轴handle拖拽功能
