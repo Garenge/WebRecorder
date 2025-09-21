@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRecorder v3 - 录制与编辑</title>
+    <link rel="stylesheet" href="styles.css?v=20241214">
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 WebRecorder v3</h1>
+        
+        <!-- 标签页导航 -->
+        <div class="tab-navigation">
+            <button class="tab-btn active" data-tab="recorder">
+                🎥 录制
+            </button>
+            <button class="tab-btn" data-tab="editor">
+                ✂️ 视频编辑
+            </button>
+        </div>
+        
+        <!-- 录制标签页 -->
+        <div id="recorder-tab" class="tab-content active">
+        <div class="main-panel">
+            <div class="settings-panel">
+                <h3>⚙️ 录制设置</h3>
+                
+                <div class="setting-group">
+                    <label for="memoryThreshold">内存阈值 (MB)</label>
+                    <select id="memoryThreshold">
+                        <option value="2">2 MB</option>
+                        <option value="5" selected>5 MB</option>
+                        <option value="10">10 MB</option>
+                        <option value="20">20 MB</option>
+                        <option value="50">50 MB</option>
+                    </select>
+                    <div class="help-text">内存中数据达到此大小时自动保存文件</div>
+                </div>
+                
+                <div class="setting-group video-quality">
+                    <label for="videoQuality">🎯 视频质量</label>
+                    <select id="videoQuality">
+                        <option value="low">低质量 (480p) - 1 Mbps</option>
+                        <option value="medium" selected>中等质量 (720p) - 2.5 Mbps</option>
+                        <option value="high">高质量 (1080p) - 5 Mbps</option>
+                        <option value="ultra">超高质量 (4K) - 20 Mbps</option>
+                    </select>
+                    <div class="help-text">选择录制视频的清晰度，质量越高文件越大</div>
+                </div>
+            </div>
+            
+            <div class="feature-info">
+                <h3>✨ 新特性</h3>
+                <ul class="feature-list">
+                    <li>🚀 沙盒存储：临时文件存储在浏览器沙盒中</li>
+                    <li>🧹 自动清理：录制完成后自动删除临时文件</li>
+                    <li>💾 内存控制：2MB阈值，避免内存溢出</li>
+                    <li>🔄 自动合并：录制结束时自动合并所有文件</li>
+                    <li>📁 单文件输出：最终只生成一个完整文件</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="main-panel">
+            <div class="status-panel">
+                <h3>📊 录制状态</h3>
+                
+                <div class="status-item">
+                    <span class="status-label">当前状态:</span>
+                    <span class="status-value" id="recordingStatus">未录制</span>
+                </div>
+                
+                <div class="status-item">
+                    <span class="status-label">当前缓存:</span>
+                    <span class="status-value" id="cacheSize">0.00 MB</span>
+                </div>
+                
+                <div class="status-item">
+                    <span class="status-label">已保存文件:</span>
+                    <span class="status-value" id="savedFiles">0 个</span>
+                </div>
+                
+                <div class="status-item">
+                    <span class="status-label">累计录制:</span>
+                    <span class="status-value" id="totalRecorded">0.00 MB</span>
+                </div>
+                
+                <div class="status-item">
+                    <span class="status-label">录制时长:</span>
+                    <span class="status-value" id="recordingDuration">00:00</span>
+                </div>
+                
+                <div class="file-info" id="fileInfo" style="display: none;">
+                    <strong>文件信息:</strong> <span id="fileDetails">-</span>
+                </div>
+            </div>
+            
+            <div class="control-panel">
+                <h3>🎮 控制面板</h3>
+                <div class="control-buttons">
+                    <button id="startBtn" class="btn btn-primary">开始录制</button>
+                    <button id="stopBtn" class="btn btn-danger" disabled>停止录制</button>
+                    <button id="clearBtn" class="btn btn-danger">清理内存</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="log-panel">
+            <h4>📝 操作日志</h4>
+            <div id="logContainer">
+                <div class="log-entry log-info">WebRecorder v3 已加载</div>
+                <div class="log-entry log-info">沙盒存储系统已初始化</div>
+            </div>
+        </div>
+        </div>
+        
+        <!-- 视频编辑标签页 -->
+        <div id="editor-tab" class="tab-content">
+            <div class="video-editor-container">
+                <div class="editor-main-panel">
+                    <div class="video-upload-section">
+                        <h3>📁 选择视频文件</h3>
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-content">
+                                <div class="upload-icon">📹</div>
+                                <p>点击选择视频文件或拖拽到此处</p>
+                                <p class="upload-hint">支持 MP4, WebM, MOV 等格式</p>
+                            </div>
+                            <input type="file" id="videoFileInput" accept="video/*" style="display: none;">
+                        </div>
+                    </div>
+                    
+                    <div class="video-preview-section">
+                        <h3>👀 视频预览</h3>
+                        <div class="video-container">
+                            <video id="previewVideo" controls style="display: none;">
+                                您的浏览器不支持视频播放
+                            </video>
+                            <div class="preview-overlay" id="previewOverlay" style="display: none;">
+                                <span id="previewText">预览区间</span>
+                            </div>
+                            <div class="no-video-placeholder" id="noVideoPlaceholder">
+                                <div class="placeholder-icon">🎬</div>
+                                <p>请先选择一个视频文件</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="editor-control-panel">
+                    <div class="timeline-section">
+                        <h3>⏱️ 时间轴控制</h3>
+                        <div class="timeline-container">
+                            <div class="timeline-info">
+                                <span>开始时间: <span id="startTimeDisplay">00:00</span></span>
+                                <span>结束时间: <span id="endTimeDisplay">00:00</span></span>
+                                <span>裁剪时长: <span id="cropDuration">00:00</span></span>
+                            </div>
+                            <div class="timeline-slider" id="timelineSlider">
+                                <!-- 背景轨道 -->
+                                <div class="timeline-track" id="timelineTrack"></div>
+                                
+                                <!-- 选中范围 -->
+                                <div class="timeline-range" id="timelineRange"></div>
+                                
+                                <!-- 开始手柄 -->
+                                <div class="timeline-handle start-handle" id="startHandle">
+                                    <div class="handle-icon">[</div>
+                                </div>
+                                
+                                <!-- 结束手柄 -->
+                                <div class="timeline-handle end-handle" id="endHandle">
+                                    <div class="handle-icon">]</div>
+                                </div>
+                                
+                                <!-- 下方固定时间显示 -->
+                                <div class="timeline-fixed-times">
+                                    <div class="fixed-time start-time">00:00</div>
+                                    <div class="fixed-time end-time" id="fixedEndTime">00:00</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="crop-controls-section">
+                        <h3>✂️ 裁剪控制</h3>
+                        <div class="crop-buttons">
+                            <button id="processVideoBtn" class="btn btn-primary" disabled>
+                                🎬 开始处理
+                            </button>
+                            <button id="downloadBtn" class="btn btn-success" disabled>
+                                📥 下载视频
+                            </button>
+                            <button id="resetBtn" class="btn btn-secondary">
+                                🔄 重置
+                            </button>
+                        </div>
+                        <div class="processing-status" id="processingStatus" style="display: none;">
+                            <div class="status-text">处理中...</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <div class="file-info" id="processedFileInfo" style="display: none;">
+                                <div class="file-size-info">
+                                    <span>生成文件大小: <span id="processedFileSize">-</span></span>
+                                    <span>压缩率: <span id="compressionRatio">-</span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FFmpeg.wasm 库 -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
+    
+    <!-- 应用脚本 -->
+    <script src="recorder-core.js?v=20241214"></script>
+    <script src="video-editor.js?v=20241214"></script>
+    <script src="app.js?v=20241214"></script>
+</body>
+</html>
