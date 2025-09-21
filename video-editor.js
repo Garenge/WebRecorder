@@ -739,6 +739,11 @@ class VideoEditor {
             
             console.log(`🎬 开始处理视频: ${this.startTime}s - ${this.endTime}s`);
             
+            // 预估处理时间
+            const estimatedTime = this.estimateProcessingTime();
+            console.log(`⏱️ 预估处理时间: ${estimatedTime}`);
+            this.showProcessingStatus(`正在处理视频... (预估: ${estimatedTime})`, 0);
+            
             if (this.useWebAPI) {
                 // 使用Web API作为备用方案
                 await this.processVideoWithWebAPI();
@@ -1248,6 +1253,48 @@ class VideoEditor {
         // 重置文件大小和压缩率显示
         this.processedFileSize.textContent = '-';
         this.compressionRatio.textContent = '-';
+    }
+
+    // 预估处理时间
+    estimateProcessingTime() {
+        if (!this.videoDuration || !this.currentVideo) {
+            return '未知';
+        }
+        
+        const cropDuration = this.endTime - this.startTime;
+        const fileSizeMB = this.currentVideo.size / (1024 * 1024);
+        const quality = this.qualityLevelSelect.value;
+        const format = this.outputFormatSelect.value;
+        
+        // 基础处理速度 (MB/分钟)
+        const baseSpeed = {
+            high: 20,    // CRF 18, slow
+            medium: 40,  // CRF 23, medium  
+            low: 80      // CRF 28, fast
+        };
+        
+        // 格式调整系数
+        const formatMultiplier = {
+            mp4: 1.0,
+            webm: 0.8,  // VP9编码较慢
+            avi: 1.2,   // 兼容性编码
+            mov: 1.1    // QuickTime格式
+        };
+        
+        // 计算预估时间
+        const baseTime = (fileSizeMB / baseSpeed[quality]) * (cropDuration / this.videoDuration);
+        const adjustedTime = baseTime * formatMultiplier[format];
+        
+        // 转换为可读格式
+        if (adjustedTime < 1) {
+            return `${Math.round(adjustedTime * 60)}秒`;
+        } else if (adjustedTime < 60) {
+            return `${Math.round(adjustedTime)}分钟`;
+        } else {
+            const hours = Math.floor(adjustedTime / 60);
+            const minutes = Math.round(adjustedTime % 60);
+            return `${hours}小时${minutes}分钟`;
+        }
     }
 
     // 显示错误信息
