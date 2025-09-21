@@ -32,6 +32,9 @@ class VideoEditor {
         this.resetBtn = document.getElementById('resetBtn');
         this.outputFormatSelect = document.getElementById('outputFormat');
         this.qualityLevelSelect = document.getElementById('qualityLevel');
+        this.replacementOptions = document.getElementById('replacementOptions');
+        this.originalDurationDisplay = document.getElementById('originalDurationDisplay');
+        this.processedDurationDisplay = document.getElementById('processedDurationDisplay');
         this.processingStatus = document.getElementById('processingStatus');
         this.progressFill = document.getElementById('progressFill');
         this.timelineRange = document.getElementById('timelineRange');
@@ -114,6 +117,26 @@ class VideoEditor {
         
         this.resetBtn.addEventListener('click', () => {
             this.resetEditor();
+        });
+        
+        // 替换选项对话框事件
+        document.getElementById('downloadNewBtn').addEventListener('click', () => {
+            this.hideReplacementOptions();
+            this.downloadNewFile();
+        });
+        
+        document.getElementById('downloadOverrideBtn').addEventListener('click', () => {
+            this.hideReplacementOptions();
+            this.downloadWithOriginalName();
+        });
+        
+        document.getElementById('previewOnlyBtn').addEventListener('click', () => {
+            this.hideReplacementOptions();
+            this.previewReplacement();
+        });
+        
+        document.getElementById('cancelReplaceBtn').addEventListener('click', () => {
+            this.hideReplacementOptions();
         });
     }
 
@@ -932,28 +955,80 @@ class VideoEditor {
             return;
         }
         
-        // 确认替换操作
-        const confirmMessage = `确定要用处理后的视频替换当前源文件吗？\n\n` +
-            `原文件时长: ${this.formatTime(this.videoDuration)}\n` +
-            `处理后时长: ${this.formatTime(this.endTime - this.startTime)}\n\n` +
-            `此操作将下载新文件并替换原文件！`;
-            
-        if (!confirm(confirmMessage)) {
-            return;
-        }
+        // 显示替换选项
+        this.showReplacementOptions();
+    }
+
+    // 显示替换选项对话框
+    showReplacementOptions() {
+        const originalDuration = this.formatTime(this.videoDuration);
+        const processedDuration = this.formatTime(this.endTime - this.startTime);
         
+        // 更新显示信息
+        this.originalDurationDisplay.textContent = originalDuration;
+        this.processedDurationDisplay.textContent = processedDuration;
+        
+        // 显示对话框
+        this.replacementOptions.style.display = 'flex';
+    }
+
+    // 隐藏替换选项对话框
+    hideReplacementOptions() {
+        this.replacementOptions.style.display = 'none';
+    }
+
+    // 方式1: 下载新文件（推荐）
+    downloadNewFile() {
+        const originalFileName = this.getOriginalFileName();
+        const newFileName = this.generateReplacementFileName(originalFileName);
+        
+        // 下载新文件
+        this.downloadReplacementFile(newFileName);
+        
+        // 更新预览
+        this.updatePreviewWithNewVideo();
+        
+        this.showProcessingStatus(`新文件已下载: ${newFileName}`, 100);
+        console.log(`📥 新文件已下载: ${newFileName}`);
+    }
+
+    // 方式2: 覆盖原文件名下载
+    downloadWithOriginalName() {
+        const originalFileName = this.getOriginalFileName();
+        const selectedFormat = this.outputFormatSelect.value;
+        
+        // 生成覆盖文件名
+        const lastDotIndex = originalFileName.lastIndexOf('.');
+        const baseName = lastDotIndex > 0 ? originalFileName.substring(0, lastDotIndex) : originalFileName;
+        const overrideFileName = `${baseName}.${selectedFormat}`;
+        
+        // 下载覆盖文件
+        this.downloadReplacementFile(overrideFileName);
+        
+        // 更新预览
+        this.updatePreviewWithNewVideo();
+        
+        this.showProcessingStatus(`覆盖文件已下载: ${overrideFileName}`, 100);
+        console.log(`📥 覆盖文件已下载: ${overrideFileName}`);
+        console.log(`⚠️ 请手动删除原文件: ${originalFileName}`);
+    }
+
+    // 方式3: 仅预览替换（不下载）
+    previewReplacement() {
+        // 更新预览
+        this.updatePreviewWithNewVideo();
+        
+        this.showProcessingStatus('预览已替换，请手动下载文件', 100);
+        console.log(`👁️ 预览已替换，请手动下载文件`);
+    }
+
+    // 更新预览窗口
+    updatePreviewWithNewVideo() {
         try {
             // 保存原始文件信息
             const originalDuration = this.videoDuration;
             const originalStartTime = this.startTime;
             const originalEndTime = this.endTime;
-            
-            // 生成新文件名（保持原文件名格式）
-            const originalFileName = this.getOriginalFileName();
-            const newFileName = this.generateReplacementFileName(originalFileName);
-            
-            // 下载新文件
-            this.downloadReplacementFile(newFileName);
             
             // 更新预览窗口
             const newVideoUrl = URL.createObjectURL(this.processedVideo);
@@ -980,13 +1055,9 @@ class VideoEditor {
                 this.replaceSourceBtn.disabled = true;
                 this.downloadBtn.disabled = true;
                 
-                // 显示成功消息
-                this.showProcessingStatus(`源文件已替换为: ${newFileName}`, 100);
-                
-                console.log(`🔄 源文件已替换:`);
+                console.log(`🔄 预览已更新:`);
                 console.log(`   原时长: ${this.formatTime(originalDuration)}`);
                 console.log(`   新时长: ${this.formatTime(this.videoDuration)}`);
-                console.log(`   新文件名: ${newFileName}`);
                 console.log(`   裁剪范围: ${this.formatTime(originalStartTime)} - ${this.formatTime(originalEndTime)}`);
                 
                 // 清理处理后的视频引用
@@ -999,8 +1070,8 @@ class VideoEditor {
             }
             
         } catch (error) {
-            console.error('❌ 替换源文件失败:', error);
-            this.showError('替换源文件失败: ' + error.message);
+            console.error('❌ 更新预览失败:', error);
+            this.showError('更新预览失败: ' + error.message);
         }
     }
 

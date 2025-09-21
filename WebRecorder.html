@@ -230,6 +230,36 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <!-- 替换选项对话框 -->
+                        <div class="replacement-options" id="replacementOptions" style="display: none;">
+                            <div class="options-content">
+                                <h4>🔄 选择替换方式</h4>
+                                <div class="file-info-display">
+                                    <div class="file-duration">
+                                        <span>原文件时长: <span id="originalDurationDisplay">-</span></span>
+                                        <span>处理后时长: <span id="processedDurationDisplay">-</span></span>
+                                    </div>
+                                </div>
+                                <div class="options-buttons">
+                                    <button class="option-btn" id="downloadNewBtn">
+                                        📥 下载新文件（推荐）
+                                    </button>
+                                    <button class="option-btn" id="downloadOverrideBtn">
+                                        🔄 覆盖原文件名下载
+                                    </button>
+                                    <button class="option-btn" id="previewOnlyBtn">
+                                        👁️ 仅预览替换（不下载）
+                                    </button>
+                                    <button class="option-btn cancel-btn" id="cancelReplaceBtn">
+                                        ❌ 取消
+                                    </button>
+                                </div>
+                                <div class="security-notice">
+                                    <small>⚠️ 由于浏览器安全限制，无法自动删除原文件，需要您手动删除。</small>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
