@@ -936,7 +936,7 @@ class VideoEditor {
         const confirmMessage = `确定要用处理后的视频替换当前源文件吗？\n\n` +
             `原文件时长: ${this.formatTime(this.videoDuration)}\n` +
             `处理后时长: ${this.formatTime(this.endTime - this.startTime)}\n\n` +
-            `此操作不可撤销！`;
+            `此操作将下载新文件并替换原文件！`;
             
         if (!confirm(confirmMessage)) {
             return;
@@ -948,10 +948,15 @@ class VideoEditor {
             const originalStartTime = this.startTime;
             const originalEndTime = this.endTime;
             
-            // 创建新的视频URL
-            const newVideoUrl = URL.createObjectURL(this.processedVideo);
+            // 生成新文件名（保持原文件名格式）
+            const originalFileName = this.getOriginalFileName();
+            const newFileName = this.generateReplacementFileName(originalFileName);
             
-            // 更新视频源
+            // 下载新文件
+            this.downloadReplacementFile(newFileName);
+            
+            // 更新预览窗口
+            const newVideoUrl = URL.createObjectURL(this.processedVideo);
             this.currentVideo = this.processedVideo;
             this.previewVideo.src = newVideoUrl;
             
@@ -964,7 +969,7 @@ class VideoEditor {
                 this.startTime = 0;
                 this.endTime = this.videoDuration;
                 
-                // 更新UI
+                // 更新UI - 包括滑块时间
                 this.updateHandlePosition('start');
                 this.updateHandlePosition('end');
                 this.updateTimelineRange();
@@ -976,11 +981,12 @@ class VideoEditor {
                 this.downloadBtn.disabled = true;
                 
                 // 显示成功消息
-                this.showProcessingStatus('源文件已成功替换！', 100);
+                this.showProcessingStatus(`源文件已替换为: ${newFileName}`, 100);
                 
                 console.log(`🔄 源文件已替换:`);
                 console.log(`   原时长: ${this.formatTime(originalDuration)}`);
                 console.log(`   新时长: ${this.formatTime(this.videoDuration)}`);
+                console.log(`   新文件名: ${newFileName}`);
                 console.log(`   裁剪范围: ${this.formatTime(originalStartTime)} - ${this.formatTime(originalEndTime)}`);
                 
                 // 清理处理后的视频引用
@@ -996,6 +1002,41 @@ class VideoEditor {
             console.error('❌ 替换源文件失败:', error);
             this.showError('替换源文件失败: ' + error.message);
         }
+    }
+
+    // 获取原始文件名
+    getOriginalFileName() {
+        if (this.videoFileInput && this.videoFileInput.files && this.videoFileInput.files[0]) {
+            return this.videoFileInput.files[0].name;
+        }
+        return 'video';
+    }
+
+    // 生成替换文件名
+    generateReplacementFileName(originalFileName) {
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const selectedFormat = this.outputFormatSelect.value;
+        
+        // 获取文件扩展名
+        const lastDotIndex = originalFileName.lastIndexOf('.');
+        const baseName = lastDotIndex > 0 ? originalFileName.substring(0, lastDotIndex) : originalFileName;
+        
+        // 生成新文件名
+        return `${baseName}_processed_${timestamp}.${selectedFormat}`;
+    }
+
+    // 下载替换文件
+    downloadReplacementFile(fileName) {
+        const url = URL.createObjectURL(this.processedVideo);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        console.log(`📥 替换文件已下载: ${fileName}`);
     }
 
     // 重置编辑器
