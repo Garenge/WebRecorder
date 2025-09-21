@@ -29,6 +29,8 @@ class VideoEditor {
         this.processVideoBtn = document.getElementById('processVideoBtn');
         this.downloadBtn = document.getElementById('downloadBtn');
         this.resetBtn = document.getElementById('resetBtn');
+        this.outputFormatSelect = document.getElementById('outputFormat');
+        this.qualityLevelSelect = document.getElementById('qualityLevel');
         this.processingStatus = document.getElementById('processingStatus');
         this.progressFill = document.getElementById('progressFill');
         this.timelineRange = document.getElementById('timelineRange');
@@ -711,29 +713,107 @@ class VideoEditor {
         
         const { fetchFile } = window.FFmpegUtil;
         
+        // 获取输出格式设置
+        const outputFormat = this.getOutputFormat();
+        const outputFile = `output.${outputFormat.extension}`;
+        
         // 写入输入文件
         await this.ffmpeg.writeFile('input.mp4', await fetchFile(this.currentVideo));
         this.updateProgress(20);
         
-        // 执行裁剪命令
-        await this.ffmpeg.exec([
+        // 构建FFmpeg命令
+        const command = [
             '-i', 'input.mp4',
             '-ss', this.startTime.toString(),
             '-t', (this.endTime - this.startTime).toString(),
-            '-c', 'copy',
-            'output.mp4'
-        ]);
+            ...outputFormat.ffmpegArgs,
+            outputFile
+        ];
+        
+        console.log('🎬 FFmpeg命令:', command.join(' '));
+        
+        // 执行裁剪、压缩和格式转换命令
+        await this.ffmpeg.exec(command);
         this.updateProgress(80);
         
         // 读取输出文件
-        const data = await this.ffmpeg.readFile('output.mp4');
+        const data = await this.ffmpeg.readFile(outputFile);
         this.updateProgress(100);
         
-        this.processedVideo = new Blob([data.buffer], { type: 'video/mp4' });
+        this.processedVideo = new Blob([data.buffer], { type: outputFormat.mimeType });
         
         // 清理临时文件
         await this.ffmpeg.deleteFile('input.mp4');
-        await this.ffmpeg.deleteFile('output.mp4');
+        await this.ffmpeg.deleteFile(outputFile);
+    }
+
+    // 获取输出格式配置
+    getOutputFormat() {
+        const format = this.outputFormatSelect.value;
+        const quality = this.qualityLevelSelect.value;
+        
+        // 质量设置
+        const qualitySettings = {
+            high: { crf: '18', preset: 'slow', bitrate: '192k' },
+            medium: { crf: '23', preset: 'medium', bitrate: '128k' },
+            low: { crf: '28', preset: 'fast', bitrate: '96k' }
+        };
+        
+        const qualityConfig = qualitySettings[quality];
+        
+        // 格式配置
+        const formatConfigs = {
+            mp4: {
+                extension: 'mp4',
+                mimeType: 'video/mp4',
+                ffmpegArgs: [
+                    '-c:v', 'libx264',
+                    '-crf', qualityConfig.crf,
+                    '-preset', qualityConfig.preset,
+                    '-c:a', 'aac',
+                    '-b:a', qualityConfig.bitrate,
+                    '-movflags', '+faststart'
+                ]
+            },
+            webm: {
+                extension: 'webm',
+                mimeType: 'video/webm',
+                ffmpegArgs: [
+                    '-c:v', 'libvpx-vp9',
+                    '-crf', qualityConfig.crf,
+                    '-b:v', '0',  // VP9使用CRF模式
+                    '-c:a', 'libopus',
+                    '-b:a', qualityConfig.bitrate
+                ]
+            },
+            avi: {
+                extension: 'avi',
+                mimeType: 'video/avi',
+                ffmpegArgs: [
+                    '-c:v', 'libx264',
+                    '-crf', qualityConfig.crf,
+                    '-preset', qualityConfig.preset,
+                    '-c:a', 'mp3',
+                    '-b:a', qualityConfig.bitrate
+                ]
+            },
+            mov: {
+                extension: 'mov',
+                mimeType: 'video/quicktime',
+                ffmpegArgs: [
+                    '-c:v', 'libx264',
+                    '-crf', qualityConfig.crf,
+                    '-preset', qualityConfig.preset,
+                    '-c:a', 'aac',
+                    '-b:a', qualityConfig.bitrate,
+                    '-movflags', '+faststart'
+                ]
+            }
+        };
+        
+        const config = formatConfigs[format];
+        console.log(`🎬 选择格式: ${format.toUpperCase()}, 质量: ${quality}, CRF: ${qualityConfig.crf}`);
+        return config;
     }
 
     // 使用Web API处理视频（备用方案）
@@ -821,13 +901,22 @@ class VideoEditor {
         const url = URL.createObjectURL(this.processedVideo);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `cropped_video_${Date.now()}.${this.processedVideo.type.includes('webm') ? 'webm' : 'mp4'}`;
+        
+        // 获取当前选择的格式
+        const selectedFormat = this.outputFormatSelect.value;
+        const quality = this.qualityLevelSelect.value;
+        
+        // 生成文件名
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const filename = `cropped_video_${selectedFormat.toUpperCase()}_${quality}_${timestamp}.${selectedFormat}`;
+        
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        console.log('📥 视频下载完成');
+        console.log(`📥 视频下载完成: ${selectedFormat.toUpperCase()}格式 (${quality}质量)`);
     }
 
     // 重置编辑器

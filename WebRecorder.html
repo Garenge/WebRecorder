@@ -185,6 +185,25 @@
                     
                     <div class="crop-controls-section">
                         <h3>✂️ 裁剪控制</h3>
+                        
+                        <!-- 输出格式选择 -->
+                        <div class="format-selection">
+                            <label for="outputFormat">📁 输出格式:</label>
+                            <select id="outputFormat" class="format-select">
+                                <option value="mp4">MP4 (推荐)</option>
+                                <option value="webm">WebM (高压缩)</option>
+                                <option value="avi">AVI (兼容性好)</option>
+                                <option value="mov">MOV (苹果格式)</option>
+                            </select>
+                            
+                            <label for="qualityLevel">🎯 压缩质量:</label>
+                            <select id="qualityLevel" class="quality-select">
+                                <option value="high">高质量 (文件较大)</option>
+                                <option value="medium" selected>标准质量 (推荐)</option>
+                                <option value="low">高压缩 (文件较小)</option>
+                            </select>
+                        </div>
+                        
                         <div class="crop-buttons">
                             <button id="processVideoBtn" class="btn btn-primary" disabled>
                                 🎬 开始处理

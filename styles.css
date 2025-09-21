@@ -620,6 +620,54 @@ h1 {
     font-weight: 600;
 }
 
+/* 格式选择样式 */
+.format-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 15px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+.format-selection label {
+    font-weight: 600;
+    color: #495057;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.format-select,
+.quality-select {
+    padding: 8px 12px;
+    border: 2px solid #dee2e6;
+    border-radius: 6px;
+    background-color: white;
+    font-size: 14px;
+    color: #495057;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.format-select:hover,
+.quality-select:hover {
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+}
+
+.format-select:focus,
+.quality-select:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.2);
+}
+
+.format-selection option {
+    padding: 8px;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
     .main-panel,
@@ -661,6 +709,21 @@ h1 {
     
     .timeline-info span {
         padding: 4px 6px;
+        font-size: 12px;
+    }
+    
+    .format-selection {
+        padding: 10px;
+        gap: 8px;
+    }
+    
+    .format-selection label {
+        font-size: 12px;
+    }
+    
+    .format-select,
+    .quality-select {
+        padding: 6px 8px;
         font-size: 12px;
     }
 }
