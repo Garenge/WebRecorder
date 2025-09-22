@@ -208,6 +208,14 @@ class VideoEditor {
     // 初始化FFmpeg
     async initializeFFmpeg() {
         try {
+            // 检查是否在Electron环境中，如果是则跳过FFmpeg.wasm加载
+            if (window.electronAPI) {
+                console.log('🚀 检测到Electron环境，跳过FFmpeg.wasm加载');
+                this.showProcessingStatus('检测到Electron环境，使用原生FFmpeg', 100);
+                this.useWebAPI = false; // 标记为使用原生FFmpeg
+                return;
+            }
+            
             console.log('🔄 正在加载FFmpeg.wasm...');
             this.showProcessingStatus('正在加载FFmpeg.wasm...', 10);
             
@@ -531,19 +539,29 @@ class VideoEditor {
             this.originalVideoInfo.height = this.previewVideo.videoHeight;
             this.originalVideoInfo.format = this.currentVideo.type || 'unknown';
             
-            // 估算码率 (文件大小 * 8 / 时长)
-            this.originalVideoInfo.estimatedBitrate = Math.round((this.currentVideo.size * 8) / this.videoDuration);
+            // 更准确的码率估算
+            const fileSizeBytes = this.currentVideo.size;
+            const durationSeconds = this.videoDuration;
+            
+            // 估算总码率 (包含视频+音频)
+            const totalBitrate = Math.round((fileSizeBytes * 8) / durationSeconds);
+            
+            // 估算视频码率 (假设视频占80-90%的码率)
+            const videoBitrateRatio = 0.85; // 视频码率占总码率的85%
+            this.originalVideoInfo.estimatedBitrate = Math.round(totalBitrate * videoBitrateRatio);
             
             // 根据文件大小和时长估算实际码率
-            const fileSizeMB = this.currentVideo.size / (1024 * 1024);
-            const durationMinutes = this.videoDuration / 60;
+            const fileSizeMB = fileSizeBytes / (1024 * 1024);
+            const durationMinutes = durationSeconds / 60;
             this.originalVideoInfo.bitrate = Math.round((fileSizeMB * 8) / durationMinutes);
             
             console.log('📊 原始视频信息:');
             console.log(`   分辨率: ${this.originalVideoInfo.width}x${this.originalVideoInfo.height}`);
             console.log(`   格式: ${this.originalVideoInfo.format}`);
-            console.log(`   估算码率: ${Math.round(this.originalVideoInfo.estimatedBitrate / 1000)} kbps`);
-            console.log(`   文件大小: ${(this.currentVideo.size / (1024 * 1024)).toFixed(2)} MB`);
+            console.log(`   总码率: ${Math.round(totalBitrate / 1000)} kbps`);
+            console.log(`   估算视频码率: ${Math.round(this.originalVideoInfo.estimatedBitrate / 1000)} kbps`);
+            console.log(`   文件大小: ${fileSizeMB.toFixed(2)} MB`);
+            console.log(`   时长: ${durationSeconds.toFixed(2)} 秒`);
             
             // 根据原始码率设置默认质量
             this.setDefaultQualityBasedOnOriginal();
@@ -577,6 +595,60 @@ class VideoEditor {
         // 将码率转换为kbps格式
         const bitrateKbps = Math.round(this.originalVideoInfo.estimatedBitrate / 1000);
         return `${bitrateKbps}k`;
+    }
+
+    // 计算视频码率
+    calculateVideoBitrate() {
+        const quality = this.qualityLevelSelect.value;
+        
+        // 如果选择保持原始质量，使用原始码率
+        if (quality === 'original' && this.originalVideoInfo.estimatedBitrate) {
+            const originalBitrateKbps = Math.round(this.originalVideoInfo.estimatedBitrate / 1000);
+            console.log(`🎯 保持原始码率: ${originalBitrateKbps}k`);
+            return `${originalBitrateKbps}k`;
+        }
+        
+        // 根据分辨率和质量等级动态计算码率
+        const resolution = this.originalVideoInfo.width * this.originalVideoInfo.height;
+        let baseBitrate;
+        
+        if (resolution >= 3840 * 2160) { // 4K
+            baseBitrate = 15000; // 15 Mbps
+        } else if (resolution >= 1920 * 1080) { // 1080p
+            baseBitrate = 8000;  // 8 Mbps
+        } else if (resolution >= 1280 * 720) { // 720p
+            baseBitrate = 4000;  // 4 Mbps
+        } else { // 其他分辨率
+            baseBitrate = 2000;  // 2 Mbps
+        }
+        
+        // 根据质量等级调整码率
+        const qualityMultipliers = {
+            'high': 1.0,      // 100% 基础码率
+            'medium': 0.7,    // 70% 基础码率
+            'low': 0.4        // 40% 基础码率
+        };
+        
+        const multiplier = qualityMultipliers[quality] || 0.7;
+        const finalBitrate = Math.round(baseBitrate * multiplier);
+        
+        console.log(`🎯 动态码率计算: ${this.originalVideoInfo.width}x${this.originalVideoInfo.height} -> ${finalBitrate}k (${quality})`);
+        return `${finalBitrate}k`;
+    }
+
+    // 计算音频码率
+    calculateAudioBitrate() {
+        const quality = this.qualityLevelSelect.value;
+        
+        // 根据质量等级设置音频码率
+        const audioBitrates = {
+            'original': '192k',   // 保持原始质量
+            'high': '192k',       // 高质量
+            'medium': '128k',     // 标准质量
+            'low': '96k'          // 低质量
+        };
+        
+        return audioBitrates[quality] || '128k';
     }
 
     // 重置视频状态
@@ -1084,19 +1156,27 @@ class VideoEditor {
     async processVideo() {
         if (!this.currentVideo || this.isProcessing) return;
         
+        // 记录开始时间
+        const startTime = Date.now();
+        console.log(`🎬 开始处理视频: ${this.startTime}s - ${this.endTime}s`);
+        console.log(`⏰ 开始时间: ${new Date().toLocaleTimeString()}`);
+        
         try {
             this.isProcessing = true;
             this.processVideoBtn.disabled = true;
             this.showProcessingStatus('正在处理视频...', 0);
-            
-            console.log(`🎬 开始处理视频: ${this.startTime}s - ${this.endTime}s`);
             
             // 预估处理时间
             const estimatedTime = this.estimateProcessingTime();
             console.log(`⏱️ 预估处理时间: ${estimatedTime}`);
             this.showProcessingStatus(`正在处理视频... (预估: ${estimatedTime})`, 0);
             
-            if (this.useWebAPI) {
+            // 检查是否有原生FFmpeg可用 (Electron环境)
+            const hasNativeFFmpeg = await this.checkNativeFFmpeg();
+            if (hasNativeFFmpeg) {
+                console.log('🚀 检测到原生FFmpeg，使用高性能处理');
+                await this.processVideoWithNativeFFmpeg();
+            } else if (this.useWebAPI) {
                 // 使用Web API作为备用方案
                 await this.processVideoWithWebAPI();
             } else {
@@ -1104,8 +1184,18 @@ class VideoEditor {
                 await this.processVideoWithFFmpeg();
             }
             
+            // 计算总耗时
+            const endTime = Date.now();
+            const totalTime = endTime - startTime;
+            const totalSeconds = (totalTime / 1000).toFixed(2);
+            const minutes = Math.floor(totalTime / 60000);
+            const seconds = ((totalTime % 60000) / 1000).toFixed(1);
+            
             console.log('✅ 视频处理完成');
-            this.showProcessingStatus('视频处理完成！', 100);
+            console.log(`⏰ 结束时间: ${new Date().toLocaleTimeString()}`);
+            console.log(`⏱️ 总耗时: ${totalSeconds}秒 (${minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`})`);
+            
+            this.showProcessingStatus(`视频处理完成！总耗时: ${totalSeconds}秒`, 100);
             this.downloadBtn.disabled = false;
             this.replaceSourceBtn.disabled = false;
             this.compareBtn.disabled = false;
@@ -1116,7 +1206,13 @@ class VideoEditor {
             await this.autoShowComparison();
             
         } catch (error) {
+            // 计算失败时的耗时
+            const endTime = Date.now();
+            const totalTime = endTime - startTime;
+            const totalSeconds = (totalTime / 1000).toFixed(2);
+            
             console.error('❌ 视频处理失败:', error);
+            console.log(`⏱️ 失败前耗时: ${totalSeconds}秒`);
             this.showProcessingStatus('视频处理失败，请重试', 100);
             this.showError('视频处理失败: ' + error.message);
         } finally {
@@ -1187,24 +1283,25 @@ class VideoEditor {
         
         // 执行裁剪、压缩和格式转换命令 - 添加详细进度反馈
         this.showProcessingStatus('正在处理视频...', 30);
-        const startTime = Date.now();
+        const processingStartTime = Date.now();
         
         // 开始性能监控
         const performanceInfo = this.startPerformanceMonitoring();
         
         await this.ffmpeg.exec(command);
-        const processingTime = Date.now() - startTime;
+        const processingTime = Date.now() - processingStartTime;
         const videoDuration = this.endTime - this.startTime;
         const speedRatio = videoDuration / (processingTime / 1000);
         
         // 停止性能监控
         this.stopPerformanceMonitoring(performanceInfo);
         
-        console.log(`⚡ 视频处理统计:`);
-        console.log(`   处理耗时: ${(processingTime / 1000).toFixed(2)}秒`);
+        console.log(`✅ FFmpeg.wasm核心处理完成`);
+        console.log(`⚡ 核心处理统计:`);
+        console.log(`   核心处理耗时: ${(processingTime / 1000).toFixed(2)}秒`);
         console.log(`   视频时长: ${videoDuration.toFixed(2)}秒`);
         console.log(`   处理速度: ${speedRatio.toFixed(2)}x (${speedRatio > 1 ? '实时' : '慢于实时'})`);
-        console.log(`   质量模式: ${quality} (CRF: ${qualityConfig.crf})`);
+        console.log(`   质量模式: ${this.qualityLevelSelect.value}`);
         console.log(`   资源使用: 主要消耗CPU，建议监控活动监视器中的CPU使用率`);
         
         this.updateProgress(80);
@@ -1507,24 +1604,38 @@ class VideoEditor {
             throw new Error('原生FFmpeg需要Electron环境');
         }
         
+        // 记录开始时间
+        const startTime = Date.now();
         console.log('🚀 使用原生FFmpeg处理视频');
+        console.log(`⏰ 开始时间: ${new Date().toLocaleTimeString()}`);
         
         try {
             // 获取输出格式设置
             const outputFormat = this.getOutputFormat();
             const outputFile = `output.${outputFormat.extension}`;
             
+            // 计算视频码率
+            const videoBitrate = this.calculateVideoBitrate();
+            
+            // 读取视频文件数据
+            const fileData = await this.currentVideo.arrayBuffer();
+            
             // 设置处理选项
             const options = {
-                inputPath: 'input.mp4',  // 临时文件路径
+                inputPath: 'input.mp4',  // 虚拟文件路径
+                fileData: fileData,      // 实际文件数据
                 outputPath: outputFile,
                 startTime: this.startTime,
                 duration: this.endTime - this.startTime,
                 format: this.outputFormatSelect.value,
                 quality: this.qualityLevelSelect.value,
                 crf: this.getOutputFormat().ffmpegArgs.find(arg => arg === '-crf')?.next || '23',
-                preset: this.getOutputFormat().ffmpegArgs.find(arg => arg === '-preset')?.next || 'faster'
+                preset: this.getOutputFormat().ffmpegArgs.find(arg => arg === '-preset')?.next || 'faster',
+                videoBitrate: videoBitrate,
+                audioBitrate: this.calculateAudioBitrate()
             };
+            
+            console.log(`🎯 码率设置: 视频=${videoBitrate}, 音频=${this.calculateAudioBitrate()}`);
             
             // 设置进度监听
             window.electronAPI.onFFmpegProgress((data) => {
@@ -1536,7 +1647,30 @@ class VideoEditor {
             const result = await window.electronAPI.processVideo(options);
             
             if (result.success) {
+                // 计算总耗时
+                const endTime = Date.now();
+                const totalTime = endTime - startTime;
+                const totalSeconds = (totalTime / 1000).toFixed(2);
+                const minutes = Math.floor(totalTime / 60000);
+                const seconds = ((totalTime % 60000) / 1000).toFixed(1);
+                
                 console.log('✅ 原生FFmpeg处理完成');
+                console.log(`⏰ 结束时间: ${new Date().toLocaleTimeString()}`);
+                console.log(`⏱️ 总耗时: ${totalSeconds}秒 (${minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`})`);
+                
+                // 处理返回的视频数据
+                if (result.videoData) {
+                    // 将Array转换为Uint8Array，然后创建Blob
+                    const videoArray = new Uint8Array(result.videoData);
+                    const outputFormat = this.getOutputFormat();
+                    this.processedVideo = new Blob([videoArray], { type: outputFormat.mimeType });
+                    
+                    console.log(`📁 处理后的视频已创建: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+                }
+                
+                // 显示耗时信息给用户
+                this.showProcessingStatus(`处理完成！耗时: ${totalSeconds}秒`, 100);
+                
                 this.updateProgress(100);
                 return result;
             } else {
@@ -1544,7 +1678,13 @@ class VideoEditor {
             }
             
         } catch (error) {
+            // 计算失败时的耗时
+            const endTime = Date.now();
+            const totalTime = endTime - startTime;
+            const totalSeconds = (totalTime / 1000).toFixed(2);
+            
             console.error('❌ 原生FFmpeg处理错误:', error);
+            console.log(`⏱️ 失败前耗时: ${totalSeconds}秒`);
             throw error;
         } finally {
             // 清理进度监听器
@@ -1670,8 +1810,8 @@ class VideoEditor {
             return new Promise((resolve, reject) => {
                 mediaRecorder.onstop = () => {
                     this.processedVideo = new Blob(chunks, { type: 'video/webm' });
-                    this.updateProgress(100);
                     console.log('✅ Web API视频处理完成');
+                    this.updateProgress(100);
                     resolve();
                 };
                 

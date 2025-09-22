@@ -38,7 +38,9 @@ class NativeVideoProcessor {
                 format = 'mp4',
                 quality = 'medium',
                 crf = '23',
-                preset = 'faster'
+                preset = 'faster',
+                videoBitrate = null,
+                audioBitrate = '128k'
             } = options;
 
             console.log('🚀 开始原生FFmpeg处理...');
@@ -52,15 +54,31 @@ class NativeVideoProcessor {
                 '-ss', startTime.toString(),
                 '-t', duration.toString(),
                 '-c:v', 'libx264',
-                '-crf', crf,
-                '-preset', preset,
+                '-preset', preset
+            ];
+
+            // 根据质量设置选择码率控制方式
+            if (videoBitrate) {
+                // 使用固定码率模式
+                ffmpegArgs.push('-b:v', videoBitrate);
+                ffmpegArgs.push('-maxrate', videoBitrate);
+                ffmpegArgs.push('-bufsize', videoBitrate);
+                console.log(`🎯 使用固定码率: ${videoBitrate}`);
+            } else {
+                // 使用CRF模式（恒定质量）
+                ffmpegArgs.push('-crf', crf);
+                console.log(`🎯 使用CRF模式: ${crf}`);
+            }
+
+            // 添加其他参数
+            ffmpegArgs.push(
                 '-c:a', 'aac',
-                '-b:a', '128k',
+                '-b:a', audioBitrate,
                 '-movflags', '+faststart',
                 '-threads', '0',  // 使用所有CPU核心
                 '-y',  // 覆盖输出文件
                 outputPath
-            ];
+            );
 
             console.log('🎬 FFmpeg命令:', 'ffmpeg', ffmpegArgs.join(' '));
 

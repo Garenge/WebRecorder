@@ -203,28 +203,70 @@ class VideoComparisonHelper {
                 left: 0;
                 width: 100%;
                 height: 100%;
-                background: rgba(0,0,0,0.5);
+                background: rgba(0,0,0,0.6);
+                backdrop-filter: blur(8px);
                 display: flex;
                 justify-content: center;
                 align-items: center;
                 z-index: 10000;
-                animation: fadeIn 0.3s ease;
+                animation: fadeIn 0.4s ease;
             }
             
             @keyframes fadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
+                from { 
+                    opacity: 0;
+                    backdrop-filter: blur(0px);
+                }
+                to { 
+                    opacity: 1;
+                    backdrop-filter: blur(8px);
+                }
             }
             
             .modal-content {
                 background: white;
-                border-radius: 15px;
-                max-width: 700px;
-                max-height: 85vh;
-                overflow-y: auto;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                animation: slideIn 0.3s ease;
+                border-radius: 20px;
+                max-width: 800px;
+                max-height: 90vh;
+                overflow: hidden;
+                box-shadow: 0 25px 80px rgba(0,0,0,0.4);
+                animation: slideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
                 margin: 20px;
+                display: flex;
+                flex-direction: column;
+            }
+            
+            .modal-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 0;
+            }
+            
+            /* 美化滚动条 */
+            .modal-body::-webkit-scrollbar {
+                width: 8px;
+            }
+            
+            .modal-body::-webkit-scrollbar-track {
+                background: #f1f1f1;
+                border-radius: 10px;
+            }
+            
+            .modal-body::-webkit-scrollbar-thumb {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 10px;
+                transition: all 0.3s ease;
+            }
+            
+            .modal-body::-webkit-scrollbar-thumb:hover {
+                background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            }
+            
+            /* Firefox 滚动条样式 */
+            .modal-body {
+                scrollbar-width: thin;
+                scrollbar-color: #667eea #f1f1f1;
             }
             
             @keyframes slideIn {
@@ -242,62 +284,113 @@ class VideoComparisonHelper {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 20px 25px;
-                border-bottom: 1px solid #eee;
+                padding: 25px 30px;
+                border-bottom: none;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
-                border-radius: 15px 15px 0 0;
+                border-radius: 20px 20px 0 0;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .modal-header::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: linear-gradient(45deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(255,255,255,0.1) 100%);
+                animation: shimmer 3s ease-in-out infinite;
+            }
+            
+            @keyframes shimmer {
+                0%, 100% { transform: translateX(-100%); }
+                50% { transform: translateX(100%); }
             }
             
             .modal-header h3 {
                 margin: 0;
-                font-size: 1.4em;
-                font-weight: 600;
+                font-size: 1.5em;
+                font-weight: 700;
+                position: relative;
+                z-index: 1;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.3);
             }
             
             .close-btn {
-                background: none;
+                background: rgba(255,255,255,0.15);
                 border: none;
                 color: white;
-                font-size: 24px;
+                font-size: 20px;
                 cursor: pointer;
-                padding: 5px 10px;
+                padding: 8px 12px;
                 border-radius: 50%;
-                transition: background 0.3s ease;
+                transition: all 0.3s ease;
+                position: relative;
+                z-index: 1;
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.2);
             }
             
             .close-btn:hover {
-                background: rgba(255,255,255,0.2);
+                background: rgba(255,255,255,0.25);
+                transform: scale(1.1);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             }
             
             .modal-body {
-                padding: 25px;
+                padding: 30px;
+                background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
             }
             
             .comparison-summary {
-                background: #f8f9fa;
-                padding: 20px;
-                border-radius: 10px;
-                margin-bottom: 25px;
-                border-left: 4px solid #667eea;
+                background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+                padding: 25px;
+                border-radius: 15px;
+                margin-bottom: 30px;
+                border: 1px solid #e9ecef;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .comparison-summary::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 4px;
+                height: 100%;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             }
             
             .summary-item {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
+                position: relative;
+                z-index: 1;
             }
             
             .label {
                 font-weight: 600;
-                color: #333;
+                color: #495057;
+                font-size: 1.1em;
             }
             
             .value {
-                font-weight: bold;
-                padding: 5px 12px;
-                border-radius: 20px;
-                font-size: 0.9em;
+                font-weight: 700;
+                padding: 8px 16px;
+                border-radius: 25px;
+                font-size: 1em;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                transition: all 0.3s ease;
+            }
+            
+            .value:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             }
             
             .value.positive {
@@ -316,15 +409,28 @@ class VideoComparisonHelper {
             }
             
             .comparison-details {
-                margin-bottom: 25px;
+                margin-bottom: 30px;
+                background: white;
+                border-radius: 15px;
+                padding: 25px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+                border: 1px solid #e9ecef;
             }
             
             .detail-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 12px 0;
-                border-bottom: 1px solid #f0f0f0;
+                padding: 15px 0;
+                border-bottom: 1px solid #f8f9fa;
+                transition: all 0.3s ease;
+            }
+            
+            .detail-row:hover {
+                background: #f8f9fa;
+                margin: 0 -15px;
+                padding: 15px;
+                border-radius: 8px;
             }
             
             .detail-row:last-child {
@@ -334,63 +440,137 @@ class VideoComparisonHelper {
             .quality-analysis {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
-                padding: 20px;
-                border-radius: 10px;
-                margin-bottom: 25px;
+                padding: 25px;
+                border-radius: 15px;
+                margin-bottom: 30px;
+                position: relative;
+                overflow: hidden;
+                box-shadow: 0 8px 30px rgba(102, 126, 234, 0.3);
+            }
+            
+            .quality-analysis::before {
+                content: '';
+                position: absolute;
+                top: -50%;
+                right: -50%;
+                width: 100%;
+                height: 100%;
+                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+                animation: pulse 4s ease-in-out infinite;
+            }
+            
+            @keyframes pulse {
+                0%, 100% { transform: scale(1); opacity: 0.5; }
+                50% { transform: scale(1.1); opacity: 0.8; }
             }
             
             .quality-analysis h4 {
-                margin: 0 0 15px 0;
-                font-size: 1.2em;
+                margin: 0 0 20px 0;
+                font-size: 1.3em;
+                font-weight: 700;
+                position: relative;
+                z-index: 1;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.3);
             }
             
             .quality-metrics {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
+                gap: 20px;
+                position: relative;
+                z-index: 1;
             }
             
             .metric {
-                background: rgba(255,255,255,0.1);
-                padding: 15px;
-                border-radius: 8px;
+                background: rgba(255,255,255,0.15);
+                padding: 20px;
+                border-radius: 12px;
                 text-align: center;
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.2);
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            }
+            
+            .metric:hover {
+                transform: translateY(-5px);
+                background: rgba(255,255,255,0.2);
+                box-shadow: 0 8px 25px rgba(0,0,0,0.2);
             }
             
             .metric-label {
                 display: block;
-                font-size: 0.9em;
+                font-size: 0.95em;
                 opacity: 0.9;
-                margin-bottom: 5px;
+                margin-bottom: 8px;
+                font-weight: 500;
             }
             
             .metric-value {
-                font-size: 1.3em;
-                font-weight: bold;
+                font-size: 1.4em;
+                font-weight: 700;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.3);
             }
             
             .recommendations {
-                background: #fff3cd;
+                background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
                 border: 1px solid #ffeaa7;
-                border-radius: 10px;
-                padding: 20px;
+                border-radius: 15px;
+                padding: 25px;
+                box-shadow: 0 4px 20px rgba(255, 193, 7, 0.2);
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .recommendations::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 4px;
+                height: 100%;
+                background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%);
             }
             
             .recommendations h4 {
-                margin: 0 0 15px 0;
+                margin: 0 0 20px 0;
                 color: #856404;
-                font-size: 1.2em;
+                font-size: 1.3em;
+                font-weight: 700;
+                position: relative;
+                z-index: 1;
             }
             
             .recommendations ul {
                 margin: 0;
-                padding-left: 20px;
+                padding-left: 0;
+                list-style: none;
+                position: relative;
+                z-index: 1;
             }
             
             .recommendations li {
-                margin-bottom: 8px;
+                margin-bottom: 12px;
                 color: #856404;
-                line-height: 1.5;
+                line-height: 1.6;
+                padding: 12px 16px;
+                background: rgba(255,255,255,0.6);
+                border-radius: 8px;
+                border-left: 3px solid #ffc107;
+                transition: all 0.3s ease;
+                position: relative;
+            }
+            
+            .recommendations li::before {
+                content: '💡';
+                margin-right: 8px;
+                font-size: 1.1em;
+            }
+            
+            .recommendations li:hover {
+                background: rgba(255,255,255,0.8);
+                transform: translateX(5px);
+                box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
             }
             
             @media (max-width: 768px) {

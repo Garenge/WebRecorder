@@ -24,10 +24,24 @@ class ElectronVideoProcessor {
         // 加载Web应用
         this.mainWindow.loadFile('WebRecorder.html');
         
-        // 开发模式下打开开发者工具
-        if (process.env.NODE_ENV === 'development') {
-            this.mainWindow.webContents.openDevTools();
-        }
+        // 等待页面加载完成后检查API
+        this.mainWindow.webContents.once('dom-ready', () => {
+            console.log('🔍 检查Electron API是否可用...');
+            this.mainWindow.webContents.executeJavaScript(`
+                console.log('🔍 window.electronAPI:', typeof window.electronAPI);
+                if (window.electronAPI) {
+                    console.log('✅ Electron API 可用');
+                    window.electronAPI.checkFFmpeg().then(result => {
+                        console.log('🔍 FFmpeg检查结果:', result);
+                    });
+                } else {
+                    console.log('❌ Electron API 不可用');
+                }
+            `);
+        });
+        
+        // 自动打开开发者工具（方便调试）
+        this.mainWindow.webContents.openDevTools();
     }
 
     // 处理视频 - 使用原生FFmpeg
@@ -39,7 +53,9 @@ class ElectronVideoProcessor {
                 format = 'mp4',
                 quality = 'medium',
                 crf = '23',
-                preset = 'faster'
+                preset = 'faster',
+                videoBitrate = null,
+                audioBitrate = '128k'
             } = options;
 
             // 构建FFmpeg命令
@@ -48,15 +64,29 @@ class ElectronVideoProcessor {
                 '-ss', startTime.toString(),
                 '-t', duration.toString(),
                 '-c:v', 'libx264',
-                '-crf', crf,
-                '-preset', preset,
+                '-preset', preset
+            ];
+
+            // 根据质量设置选择码率控制方式
+            if (videoBitrate) {
+                // 使用固定码率模式
+                ffmpegArgs.push('-b:v', videoBitrate);
+                ffmpegArgs.push('-maxrate', videoBitrate);
+                ffmpegArgs.push('-bufsize', videoBitrate);
+            } else {
+                // 使用CRF模式（恒定质量）
+                ffmpegArgs.push('-crf', crf);
+            }
+
+            // 添加其他参数
+            ffmpegArgs.push(
                 '-c:a', 'aac',
-                '-b:a', '128k',
+                '-b:a', audioBitrate,
                 '-movflags', '+faststart',
                 '-threads', '0',  // 使用所有CPU核心
                 '-y',  // 覆盖输出文件
                 outputPath
-            ];
+            );
 
             console.log('🚀 执行原生FFmpeg命令:', 'ffmpeg', ffmpegArgs.join(' '));
 
@@ -129,11 +159,63 @@ class ElectronVideoProcessor {
         // 处理视频处理请求
         ipcMain.handle('process-video', async (event, options) => {
             try {
+                // 如果inputPath是虚拟路径，需要先保存文件
+                let actualInputPath = options.inputPath;
+                if (options.inputPath === 'input.mp4' && options.fileData) {
+                    // 保存文件到临时位置
+                    const fs = require('fs');
+                    const path = require('path');
+                    const os = require('os');
+                    
+                    const tempDir = os.tmpdir();
+                    actualInputPath = path.join(tempDir, `temp_input_${Date.now()}.mp4`);
+                    
+                    // 将ArrayBuffer转换为Buffer并保存
+                    const buffer = Buffer.from(options.fileData);
+                    fs.writeFileSync(actualInputPath, buffer);
+                    
+                    console.log(`💾 临时文件已保存: ${actualInputPath}`);
+                }
+                
                 const result = await this.processVideoWithNativeFFmpeg(
-                    options.inputPath,
+                    actualInputPath,
                     options.outputPath,
                     options
                 );
+                
+                // 读取处理后的视频文件
+                if (result.success) {
+                    const fs = require('fs');
+                    const path = require('path');
+                    const outputPath = path.join(process.cwd(), result.outputPath);
+                    
+                    if (fs.existsSync(outputPath)) {
+                        const videoData = fs.readFileSync(outputPath);
+                        result.videoData = Array.from(videoData); // 转换为Array
+                        result.fileSize = videoData.length;
+                        console.log(`📁 处理后的视频文件大小: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+                        
+                        // 清理输出文件
+                        try {
+                            fs.unlinkSync(outputPath);
+                            console.log(`🗑️ 输出文件已清理: ${outputPath}`);
+                        } catch (cleanupError) {
+                            console.warn('⚠️ 清理输出文件失败:', cleanupError);
+                        }
+                    }
+                }
+                
+                // 清理临时文件
+                if (actualInputPath !== options.inputPath) {
+                    const fs = require('fs');
+                    try {
+                        fs.unlinkSync(actualInputPath);
+                        console.log(`🗑️ 临时文件已清理: ${actualInputPath}`);
+                    } catch (cleanupError) {
+                        console.warn('⚠️ 清理临时文件失败:', cleanupError);
+                    }
+                }
+                
                 return result;
             } catch (error) {
                 throw error;
