@@ -2343,6 +2343,7 @@ class VideoEditor {
                     this.currentVideo, 
                     this.processedVideo,
                     {
+                        mode: 'detailed', // 自动对比也使用详细模式
                         title: '🎬 裁剪前后对比结果',
                         onClose: () => {
                             console.log('✅ 对比结果已关闭');
@@ -2401,11 +2402,12 @@ class VideoEditor {
             console.log('🔍 开始对比原视频和处理后的视频...');
             this.compareBtn.textContent = '🔄 分析中...';
             
-            // 使用封装的对比助手
+            // 使用封装的对比助手（默认使用详细对比模式）
             await this.comparisonHelper.quickCompare(
                 this.currentVideo, 
                 this.processedVideo,
                 {
+                    mode: 'detailed', // 默认使用详细对比
                     title: '🎬 裁剪前后对比结果',
                     onClose: () => {
                         console.log('✅ 对比结果已关闭');

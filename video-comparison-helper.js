@@ -37,6 +37,7 @@ class VideoComparisonHelper {
      * @param {File|Blob} originalFile - 原始视频文件
      * @param {File|Blob} newFile - 新视频文件
      * @param {Object} options - 选项配置
+     * @param {string} options.mode - 对比模式: 'basic' | 'detailed'
      * @returns {Promise<Object>} 对比结果
      */
     async compareVideos(originalFile, newFile, options = {}) {
@@ -45,9 +46,10 @@ class VideoComparisonHelper {
         }
 
         try {
-            console.log('🔍 开始视频对比分析...');
-            const results = await this.videoComparison.compareVideos(originalFile, newFile);
-            console.log('✅ 视频对比分析完成');
+            const { mode = 'detailed' } = options;
+            console.log(`🔍 开始${mode === 'basic' ? '普通' : '详细'}视频对比分析...`);
+            const results = await this.videoComparison.compareVideos(originalFile, newFile, { mode });
+            console.log(`✅ ${mode === 'basic' ? '普通' : '详细'}视频对比分析完成`);
             return results;
         } catch (error) {
             console.error('❌ 视频对比分析失败:', error);
@@ -622,11 +624,12 @@ class VideoComparisonHelper {
      * @param {File|Blob} originalFile - 原始视频文件
      * @param {File|Blob} newFile - 新视频文件
      * @param {Object} options - 选项配置
+     * @param {string} options.mode - 对比模式: 'basic' | 'detailed'
      * @returns {Promise<HTMLElement>} 弹窗元素
      */
     async quickCompare(originalFile, newFile, options = {}) {
         try {
-            const results = await this.compareVideos(originalFile, newFile);
+            const results = await this.compareVideos(originalFile, newFile, options);
             return this.showComparisonModal(results, options);
         } catch (error) {
             console.error('❌ 快速对比失败:', error);

@@ -54,6 +54,26 @@ class VideoComparisonUI {
                     </div>
                 </div>
                 
+                <div class="comparison-mode-selection">
+                    <h3>🎯 对比模式选择</h3>
+                    <div class="mode-options">
+                        <label class="mode-option">
+                            <input type="radio" name="comparisonMode" value="basic" checked>
+                            <span class="mode-info">
+                                <span class="mode-title">📊 普通对比</span>
+                                <span class="mode-desc">快速对比基础参数（分辨率、文件大小、码率、时长）</span>
+                            </span>
+                        </label>
+                        <label class="mode-option">
+                            <input type="radio" name="comparisonMode" value="detailed">
+                            <span class="mode-info">
+                                <span class="mode-title">🔬 详细对比</span>
+                                <span class="mode-desc">完整分析质量指标、压缩效率、视觉评分等</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                
                 <div class="comparison-controls">
                     <button id="compareButton" class="compare-btn" disabled>
                         <span class="btn-icon">🔍</span>
@@ -216,14 +236,19 @@ class VideoComparisonUI {
         const resultsContainer = document.getElementById('comparisonResults');
         const compareButton = document.getElementById('compareButton');
 
+        // 获取选择的对比模式
+        const selectedMode = document.querySelector('input[name="comparisonMode"]:checked').value;
+        const modeText = selectedMode === 'basic' ? '普通' : '详细';
+
         // 显示加载状态
         loadingIndicator.style.display = 'block';
+        loadingIndicator.querySelector('p').textContent = `正在执行${modeText}对比分析...`;
         resultsContainer.style.display = 'none';
         compareButton.disabled = true;
 
         try {
             // 执行对比分析
-            const results = await this.comparison.compareVideos(this.originalFile, this.newFile);
+            const results = await this.comparison.compareVideos(this.originalFile, this.newFile, { mode: selectedMode });
             
             // 显示结果
             this.displayResults(results);
@@ -246,6 +271,11 @@ class VideoComparisonUI {
         const resultsContainer = document.getElementById('comparisonResults');
         resultsContainer.style.display = 'block';
 
+        // 更新结果标题
+        const resultsHeader = resultsContainer.querySelector('.results-header h3');
+        const modeText = results.mode === 'basic' ? '普通' : '详细';
+        resultsHeader.textContent = `📊 ${modeText}对比结果`;
+
         // 显示整体趋势
         this.displayOverallTrend(results.summary.overallTrend);
 
@@ -255,14 +285,26 @@ class VideoComparisonUI {
         this.displayFileSizeComparison(results.differences.fileSizeChange);
         this.displayBitrateComparison(results.differences.bitrateChange);
 
-        // 显示质量分析
-        this.displayQualityAnalysis(results.qualityAnalysis);
+        // 根据模式显示不同的内容
+        if (results.mode === 'detailed') {
+            // 详细模式：显示质量分析
+            this.displayQualityAnalysis(results.qualityAnalysis);
+            this.showQualityAnalysis();
+        } else {
+            // 普通模式：隐藏质量分析部分
+            this.hideQualityAnalysis();
+        }
 
         // 显示关键变化
         this.displayKeyChanges(results.summary.keyChanges);
 
         // 显示建议
         this.displayRecommendations(results.summary.recommendations);
+        
+        // 显示模式特定的额外信息
+        if (results.mode === 'detailed') {
+            this.displayDetailedAnalysis(results);
+        }
     }
 
     /**
@@ -356,8 +398,6 @@ class VideoComparisonUI {
      */
     displayFileSizeComparison(fileSizeChange) {
         const container = document.getElementById('fileSizeComparison');
-        const originalSize = this.originalFile.size / (1024 * 1024);
-        const newSize = this.newFile.size / (1024 * 1024);
         const trendClass = fileSizeChange.trend === '增加' ? 'negative' : 
                           fileSizeChange.trend === '减少' ? 'positive' : 'neutral';
 
@@ -366,12 +406,12 @@ class VideoComparisonUI {
                 <div class="comparison-values">
                     <div class="value original">
                         <span class="label">原文件:</span>
-                        <span class="value-text">${originalSize.toFixed(2)} MB</span>
+                        <span class="value-text">${fileSizeChange.original}</span>
                     </div>
                     <div class="arrow">→</div>
                     <div class="value new">
                         <span class="label">新文件:</span>
-                        <span class="value-text">${newSize.toFixed(2)} MB</span>
+                        <span class="value-text">${fileSizeChange.new}</span>
                     </div>
                 </div>
                 <div class="change-indicator ${trendClass}">
@@ -387,8 +427,6 @@ class VideoComparisonUI {
      */
     displayBitrateComparison(bitrateChange) {
         const container = document.getElementById('bitrateComparison');
-        const originalBitrate = (bitrateChange.original / 1000).toFixed(0);
-        const newBitrate = (bitrateChange.new / 1000).toFixed(0);
         const trendClass = bitrateChange.trend === '提高' ? 'positive' : 
                           bitrateChange.trend === '降低' ? 'negative' : 'neutral';
 
@@ -397,12 +435,12 @@ class VideoComparisonUI {
                 <div class="comparison-values">
                     <div class="value original">
                         <span class="label">原文件:</span>
-                        <span class="value-text">${originalBitrate} kbps</span>
+                        <span class="value-text">${bitrateChange.original}</span>
                     </div>
                     <div class="arrow">→</div>
                     <div class="value new">
                         <span class="label">新文件:</span>
-                        <span class="value-text">${newBitrate} kbps</span>
+                        <span class="value-text">${bitrateChange.new}</span>
                     </div>
                 </div>
                 <div class="change-indicator ${trendClass}">
@@ -1009,6 +1047,117 @@ class VideoComparisonUI {
                 padding: 20px;
             }
 
+            /* 对比模式选择样式 */
+            .comparison-mode-selection {
+                margin: 20px 0;
+                padding: 20px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                border: 1px solid #e9ecef;
+            }
+
+            .comparison-mode-selection h3 {
+                margin: 0 0 15px 0;
+                color: #333;
+                font-size: 18px;
+            }
+
+            .mode-options {
+                display: flex;
+                gap: 15px;
+                flex-wrap: wrap;
+            }
+
+            .mode-option {
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+                padding: 15px;
+                background: white;
+                border: 2px solid #e9ecef;
+                border-radius: 8px;
+                transition: all 0.3s ease;
+                flex: 1;
+                min-width: 250px;
+            }
+
+            .mode-option:hover {
+                border-color: #007bff;
+                box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+            }
+
+            .mode-option input[type="radio"] {
+                margin: 0 12px 0 0;
+                transform: scale(1.2);
+            }
+
+            .mode-option input[type="radio"]:checked + .mode-info {
+                color: #007bff;
+            }
+
+            .mode-option:has(input[type="radio"]:checked) {
+                border-color: #007bff;
+                background: #f8f9ff;
+            }
+
+            .mode-info {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .mode-title {
+                font-weight: bold;
+                font-size: 16px;
+                color: #333;
+            }
+
+            .mode-desc {
+                font-size: 14px;
+                color: #666;
+                line-height: 1.4;
+            }
+
+            /* 详细分析样式 */
+            .detailed-analysis {
+                margin: 20px 0;
+                padding: 20px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                border: 1px solid #e9ecef;
+            }
+
+            .detailed-analysis h4 {
+                margin: 0 0 15px 0;
+                color: #333;
+                font-size: 18px;
+            }
+
+            .detailed-metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 15px;
+            }
+
+            .detailed-metric {
+                background: white;
+                padding: 15px;
+                border-radius: 6px;
+                border: 1px solid #e9ecef;
+            }
+
+            .detailed-metric h5 {
+                margin: 0 0 10px 0;
+                color: #333;
+                font-size: 16px;
+            }
+
+            .detailed-metric p {
+                margin: 5px 0;
+                color: #666;
+                font-size: 14px;
+            }
+
             @media (max-width: 768px) {
                 .file-upload-section {
                     grid-template-columns: 1fr;
@@ -1030,6 +1179,92 @@ class VideoComparisonUI {
         `;
 
         document.head.appendChild(style);
+    }
+
+    /**
+     * 隐藏质量分析部分（普通对比模式）
+     */
+    hideQualityAnalysis() {
+        const qualityAnalysisSection = document.querySelector('.quality-analysis');
+        if (qualityAnalysisSection) {
+            qualityAnalysisSection.style.display = 'none';
+        }
+    }
+
+    /**
+     * 显示质量分析部分（详细对比模式）
+     */
+    showQualityAnalysis() {
+        const qualityAnalysisSection = document.querySelector('.quality-analysis');
+        if (qualityAnalysisSection) {
+            qualityAnalysisSection.style.display = 'block';
+        }
+    }
+
+    /**
+     * 显示详细分析的额外信息
+     * @param {Object} results - 详细对比结果
+     */
+    displayDetailedAnalysis(results) {
+        // 在结果容器中添加详细分析部分
+        let detailedSection = document.getElementById('detailedAnalysis');
+        if (!detailedSection) {
+            detailedSection = document.createElement('div');
+            detailedSection.id = 'detailedAnalysis';
+            detailedSection.className = 'detailed-analysis';
+            detailedSection.innerHTML = `
+                <h4>🔬 详细技术分析</h4>
+                <div id="detailedMetrics"></div>
+            `;
+            
+            // 插入到质量分析之前
+            const qualityAnalysis = document.querySelector('.quality-analysis');
+            if (qualityAnalysis) {
+                qualityAnalysis.parentNode.insertBefore(detailedSection, qualityAnalysis);
+            } else {
+                // 如果没有质量分析部分，添加到结果容器末尾
+                const resultsContainer = document.getElementById('comparisonResults');
+                resultsContainer.appendChild(detailedSection);
+            }
+        }
+
+        const detailedMetrics = document.getElementById('detailedMetrics');
+        if (results.qualityAnalysis) {
+            const { basicMetrics, compressionEfficiency } = results.qualityAnalysis;
+            
+            detailedMetrics.innerHTML = `
+                <div class="detailed-metrics-grid">
+                    <div class="detailed-metric">
+                        <h5>📊 像素密度对比</h5>
+                        <p>原视频: ${basicMetrics.pixelDensity.original.toLocaleString()} 像素</p>
+                        <p>新视频: ${basicMetrics.pixelDensity.new.toLocaleString()} 像素</p>
+                        <p>变化: ${basicMetrics.pixelDensity.change}</p>
+                    </div>
+                    
+                    <div class="detailed-metric">
+                        <h5>⚡ 码率效率对比</h5>
+                        <p>原视频: ${(basicMetrics.bitrateEfficiency.original * 1000).toFixed(2)} bpp</p>
+                        <p>新视频: ${(basicMetrics.bitrateEfficiency.new * 1000).toFixed(2)} bpp</p>
+                        <p>效率: ${basicMetrics.bitrateEfficiency.efficiency}</p>
+                    </div>
+                    
+                    <div class="detailed-metric">
+                        <h5>📦 文件大小效率对比</h5>
+                        <p>原视频: ${(basicMetrics.sizeEfficiency.original * 1000).toFixed(2)} bpp</p>
+                        <p>新视频: ${(basicMetrics.sizeEfficiency.new * 1000).toFixed(2)} bpp</p>
+                        <p>效率: ${basicMetrics.sizeEfficiency.efficiency}</p>
+                    </div>
+                    
+                    <div class="detailed-metric">
+                        <h5>🎯 压缩效率评分</h5>
+                        <p>评分: ${compressionEfficiency.compressionScore}/100</p>
+                        <p>建议: ${compressionEfficiency.recommendation}</p>
+                    </div>
+                </div>
+            `;
+        } else {
+            detailedMetrics.innerHTML = '<div class="no-data">详细分析数据不可用</div>';
+        }
     }
 }
 

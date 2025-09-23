@@ -253,25 +253,51 @@ class VideoComparison {
             const url = URL.createObjectURL(videoFile);
             
             video.addEventListener('loadedmetadata', () => {
+                // 确保 duration 是有效数值
+                const duration = video.duration && !isNaN(video.duration) && isFinite(video.duration) ? video.duration : 0;
+                
+                // 确保 fileSize 是有效数值
+                const fileSize = videoFile.size && !isNaN(videoFile.size) && isFinite(videoFile.size) ? videoFile.size : 0;
+                
+                // 计算码率 - 添加更多验证
+                let estimatedBitrate = 0;
+                if (duration > 0 && fileSize > 0) {
+                    estimatedBitrate = Math.round((fileSize * 8) / duration);
+                    // 确保计算结果有效
+                    if (isNaN(estimatedBitrate) || !isFinite(estimatedBitrate)) {
+                        estimatedBitrate = 0;
+                    }
+                }
+                
                 const info = {
                     fileName: videoFile.name,
-                    fileSize: videoFile.size,
-                    duration: video.duration,
+                    fileSize: fileSize,
+                    duration: duration,
                     width: video.videoWidth,
                     height: video.videoHeight,
                     aspectRatio: video.videoWidth / video.videoHeight,
                     // 估算码率
-                    estimatedBitrate: Math.round((videoFile.size * 8) / video.duration),
+                    estimatedBitrate: estimatedBitrate,
                     // 文件格式
                     format: videoFile.type || 'unknown',
                     // 质量等级估算
                     qualityLevel: this.estimateQualityLevel(video.videoWidth, video.videoHeight),
                     // 文件大小等级
-                    sizeLevel: this.getFileSizeLevel(videoFile.size),
+                    sizeLevel: this.getFileSizeLevel(fileSize),
                     // 视频对象引用（用于质量分析）
                     videoElement: video,
                     videoUrl: url
                 };
+                
+                console.log('📹 视频信息获取:', {
+                    fileName: info.fileName,
+                    fileSize: info.fileSize,
+                    duration: info.duration,
+                    estimatedBitrate: info.estimatedBitrate,
+                    width: info.width,
+                    height: info.height,
+                    calculation: `(${fileSize} * 8) / ${duration} = ${estimatedBitrate}`
+                });
                 
                 resolve(info);
             });
@@ -322,11 +348,15 @@ class VideoComparison {
      * 对比两个视频文件
      * @param {File} originalFile - 原文件
      * @param {File} newFile - 新文件
+     * @param {Object} options - 对比选项
+     * @param {string} options.mode - 对比模式: 'basic' | 'detailed'
      * @returns {Promise<Object>} 对比结果
      */
-    async compareVideos(originalFile, newFile) {
+    async compareVideos(originalFile, newFile, options = {}) {
+        const { mode = 'detailed' } = options;
+        
         try {
-            console.log('🔍 开始对比视频文件...');
+            console.log(`🔍 开始${mode === 'basic' ? '普通' : '详细'}对比视频文件...`);
             
             // 获取两个视频的信息
             const [originalInfo, newInfo] = await Promise.all([
@@ -334,28 +364,80 @@ class VideoComparison {
                 this.getVideoInfoWithHTML5(newFile)
             ]);
 
-            // 进行高级质量分析
-            const qualityAnalysis = await this.performQualityAnalysis(originalInfo, newInfo);
-
-            // 计算对比结果
-            const comparison = {
-                original: originalInfo,
-                new: newInfo,
-                differences: this.calculateDifferences(originalInfo, newInfo),
-                qualityAnalysis: qualityAnalysis,
-                summary: this.generateSummary(originalInfo, newInfo, qualityAnalysis)
-            };
+            let comparison;
+            
+            if (mode === 'basic') {
+                // 普通对比模式
+                comparison = await this.performBasicComparison(originalInfo, newInfo);
+            } else {
+                // 详细对比模式
+                comparison = await this.performDetailedComparison(originalInfo, newInfo);
+            }
 
             // 清理视频对象引用
             URL.revokeObjectURL(originalInfo.videoUrl);
             URL.revokeObjectURL(newInfo.videoUrl);
 
-            console.log('✅ 视频对比完成');
+            console.log(`✅ ${mode === 'basic' ? '普通' : '详细'}视频对比完成`);
             return comparison;
         } catch (error) {
             console.error('❌ 视频对比失败:', error);
             throw error;
         }
+    }
+
+    /**
+     * 执行普通对比（基础参数对比）
+     * @param {Object} originalInfo - 原视频信息
+     * @param {Object} newInfo - 新视频信息
+     * @returns {Promise<Object>} 普通对比结果
+     */
+    async performBasicComparison(originalInfo, newInfo) {
+        console.log('📊 执行普通对比分析...');
+        
+        // 计算基础差异
+        const basicDifferences = this.calculateBasicDifferences(originalInfo, newInfo);
+        
+        // 生成基础摘要
+        const basicSummary = this.generateBasicSummary(originalInfo, newInfo, basicDifferences);
+        
+        return {
+            mode: 'basic',
+            original: originalInfo,
+            new: newInfo,
+            differences: basicDifferences,
+            summary: basicSummary,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    /**
+     * 执行详细对比（完整分析）
+     * @param {Object} originalInfo - 原视频信息
+     * @param {Object} newInfo - 新视频信息
+     * @returns {Promise<Object>} 详细对比结果
+     */
+    async performDetailedComparison(originalInfo, newInfo) {
+        console.log('🔬 执行详细对比分析...');
+        
+        // 进行高级质量分析
+        const qualityAnalysis = await this.performQualityAnalysis(originalInfo, newInfo);
+        
+        // 计算完整差异
+        const differences = this.calculateDifferences(originalInfo, newInfo);
+        
+        // 生成详细摘要
+        const summary = this.generateSummary(originalInfo, newInfo, qualityAnalysis);
+        
+        return {
+            mode: 'detailed',
+            original: originalInfo,
+            new: newInfo,
+            differences: differences,
+            qualityAnalysis: qualityAnalysis,
+            summary: summary,
+            timestamp: new Date().toISOString()
+        };
     }
 
     /**
@@ -655,15 +737,17 @@ class VideoComparison {
     }
 
     /**
-     * 计算两个视频的差异
+     * 计算基础差异（普通对比模式）
      * @param {Object} original - 原视频信息
      * @param {Object} newVideo - 新视频信息
-     * @returns {Object} 差异信息
+     * @returns {Object} 基础差异信息
      */
-    calculateDifferences(original, newVideo) {
+    calculateBasicDifferences(original, newVideo) {
         return {
             // 文件大小变化
             fileSizeChange: {
+                original: this.formatFileSize(original.fileSize),
+                new: this.formatFileSize(newVideo.fileSize),
                 absolute: newVideo.fileSize - original.fileSize,
                 percentage: ((newVideo.fileSize - original.fileSize) / original.fileSize * 100).toFixed(2),
                 trend: newVideo.fileSize > original.fileSize ? '增加' : '减少'
@@ -687,6 +771,8 @@ class VideoComparison {
             
             // 时长变化
             durationChange: {
+                original: this.formatDuration(original.duration),
+                new: this.formatDuration(newVideo.duration),
                 absolute: newVideo.duration - original.duration,
                 percentage: original.duration > 0 ? ((newVideo.duration - original.duration) / original.duration * 100).toFixed(2) : 0,
                 trend: newVideo.duration > original.duration ? '增加' : '减少'
@@ -694,11 +780,217 @@ class VideoComparison {
             
             // 估算码率变化
             bitrateChange: {
-                original: original.estimatedBitrate,
-                new: newVideo.estimatedBitrate,
+                original: this.formatBitrate(original.estimatedBitrate),
+                new: this.formatBitrate(newVideo.estimatedBitrate),
                 absolute: newVideo.estimatedBitrate - original.estimatedBitrate,
-                percentage: ((newVideo.estimatedBitrate - original.estimatedBitrate) / original.estimatedBitrate * 100).toFixed(2),
-                trend: newVideo.estimatedBitrate > original.estimatedBitrate ? '提高' : '降低'
+                percentage: original.estimatedBitrate > 0 ? ((newVideo.estimatedBitrate - original.estimatedBitrate) / original.estimatedBitrate * 100).toFixed(2) : '无法计算',
+                trend: original.estimatedBitrate > 0 ? (newVideo.estimatedBitrate > original.estimatedBitrate ? '提高' : '降低') : '无法比较'
+            }
+        };
+    }
+
+    /**
+     * 生成基础摘要（普通对比模式）
+     * @param {Object} original - 原视频信息
+     * @param {Object} newVideo - 新视频信息
+     * @param {Object} differences - 差异信息
+     * @returns {Object} 基础摘要
+     */
+    generateBasicSummary(original, newVideo, differences) {
+        const keyChanges = [];
+        const recommendations = [];
+        
+        // 收集关键变化
+        if (differences.resolutionChange.changed) {
+            keyChanges.push(`分辨率: ${differences.resolutionChange.original} → ${differences.resolutionChange.new}`);
+        }
+        
+        if (differences.qualityChange.changed) {
+            keyChanges.push(`质量等级: ${differences.qualityChange.original} → ${differences.qualityChange.new}`);
+        }
+        
+        if (Math.abs(parseFloat(differences.fileSizeChange.percentage)) > 10) {
+            keyChanges.push(`文件大小: ${differences.fileSizeChange.percentage}% (${differences.fileSizeChange.trend})`);
+        }
+        
+        if (Math.abs(parseFloat(differences.bitrateChange.percentage)) > 10) {
+            keyChanges.push(`码率: ${differences.bitrateChange.percentage}% (${differences.bitrateChange.trend})`);
+        }
+        
+        if (Math.abs(parseFloat(differences.durationChange.percentage)) > 5) {
+            keyChanges.push(`时长: ${differences.durationChange.original} → ${differences.durationChange.new} (${differences.durationChange.percentage}%)`);
+        }
+        
+        // 生成基础建议
+        if (differences.qualityChange.trend === '质量降低') {
+            recommendations.push('⚠️ 视频质量有所下降，建议检查编码设置');
+        }
+        
+        if (differences.fileSizeChange.trend === '增加' && parseFloat(differences.fileSizeChange.percentage) > 50) {
+            recommendations.push('📈 文件大小显著增加，可能需要优化压缩设置');
+        }
+        
+        if (differences.bitrateChange.trend === '降低' && parseFloat(differences.bitrateChange.percentage) < -30) {
+            recommendations.push('📉 码率大幅降低，可能影响视频清晰度');
+        }
+        
+        if (differences.resolutionChange.trend === '分辨率提升') {
+            recommendations.push('✅ 分辨率提升，视频清晰度应该更好');
+        }
+        
+        if (differences.durationChange.trend === '增加' && parseFloat(differences.durationChange.percentage) > 20) {
+            recommendations.push('⏱️ 视频时长显著增加，可能是添加了内容或调整了播放速度');
+        } else if (differences.durationChange.trend === '减少' && parseFloat(differences.durationChange.percentage) < -20) {
+            recommendations.push('⏱️ 视频时长显著减少，可能是裁剪了内容或提高了播放速度');
+        }
+        
+        if (recommendations.length === 0) {
+            recommendations.push('✅ 视频参数变化较小，质量基本保持');
+        }
+        
+        // 计算整体趋势
+        const improvements = [];
+        const degradations = [];
+        
+        if (differences.qualityChange.trend === '质量提升') improvements.push('质量');
+        else if (differences.qualityChange.trend === '质量降低') degradations.push('质量');
+        
+        if (differences.resolutionChange.trend === '分辨率提升') improvements.push('分辨率');
+        else if (differences.resolutionChange.trend === '分辨率降低') degradations.push('分辨率');
+        
+        if (differences.bitrateChange.trend === '提高') improvements.push('码率');
+        else if (differences.bitrateChange.trend === '降低') degradations.push('码率');
+        
+        // 时长变化通常不影响质量，但可以作为参考信息
+        // 这里不将时长变化计入整体质量趋势
+        
+        let overallTrend = '质量基本保持';
+        if (improvements.length > degradations.length) overallTrend = '整体质量提升';
+        else if (degradations.length > improvements.length) overallTrend = '整体质量下降';
+        
+        return {
+            overallTrend: overallTrend,
+            keyChanges: keyChanges,
+            recommendations: recommendations
+        };
+    }
+
+    /**
+     * 格式化文件大小
+     * @param {number} bytes - 字节数
+     * @returns {string} 格式化后的大小
+     */
+    formatFileSize(bytes) {
+        // 处理 undefined、null 或 NaN 的情况
+        if (bytes === undefined || bytes === null || isNaN(bytes) || bytes < 0) {
+            return '未知';
+        }
+        
+        if (bytes >= 1024 * 1024 * 1024) {
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        } else if (bytes >= 1024 * 1024) {
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        } else if (bytes >= 1024) {
+            return (bytes / 1024).toFixed(2) + ' KB';
+        }
+        return bytes + ' B';
+    }
+
+    /**
+     * 格式化时长
+     * @param {number} seconds - 秒数
+     * @returns {string} 格式化后的时长
+     */
+    formatDuration(seconds) {
+        // 处理 undefined、null 或 NaN 的情况
+        if (seconds === undefined || seconds === null || isNaN(seconds) || seconds < 0) {
+            return '未知';
+        }
+        
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        
+        if (hours > 0) {
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        } else {
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+    }
+
+    /**
+     * 格式化码率
+     * @param {number} bitrate - 码率（bps）
+     * @returns {string} 格式化后的码率
+     */
+    formatBitrate(bitrate) {
+        // 处理 undefined、null 或 NaN 的情况
+        if (bitrate === undefined || bitrate === null || isNaN(bitrate) || !isFinite(bitrate) || bitrate < 0) {
+            return '未知';
+        }
+        
+        // 处理码率为 0 的情况
+        if (bitrate === 0) {
+            return '无法计算';
+        }
+        
+        if (bitrate >= 1000000) {
+            return (bitrate / 1000000).toFixed(2) + ' Mbps';
+        } else if (bitrate >= 1000) {
+            return (bitrate / 1000).toFixed(2) + ' Kbps';
+        }
+        return bitrate + ' bps';
+    }
+
+    /**
+     * 计算两个视频的差异
+     * @param {Object} original - 原视频信息
+     * @param {Object} newVideo - 新视频信息
+     * @returns {Object} 差异信息
+     */
+    calculateDifferences(original, newVideo) {
+        return {
+            // 文件大小变化
+            fileSizeChange: {
+                original: this.formatFileSize(original.fileSize),
+                new: this.formatFileSize(newVideo.fileSize),
+                absolute: newVideo.fileSize - original.fileSize,
+                percentage: ((newVideo.fileSize - original.fileSize) / original.fileSize * 100).toFixed(2),
+                trend: newVideo.fileSize > original.fileSize ? '增加' : '减少'
+            },
+            
+            // 分辨率变化
+            resolutionChange: {
+                original: `${original.width}x${original.height}`,
+                new: `${newVideo.width}x${newVideo.height}`,
+                changed: original.width !== newVideo.width || original.height !== newVideo.height,
+                trend: this.getResolutionTrend(original, newVideo)
+            },
+            
+            // 质量等级变化
+            qualityChange: {
+                original: original.qualityLevel,
+                new: newVideo.qualityLevel,
+                changed: original.qualityLevel !== newVideo.qualityLevel,
+                trend: this.getQualityTrend(original, newVideo)
+            },
+            
+            // 时长变化
+            durationChange: {
+                original: this.formatDuration(original.duration),
+                new: this.formatDuration(newVideo.duration),
+                absolute: newVideo.duration - original.duration,
+                percentage: original.duration > 0 ? ((newVideo.duration - original.duration) / original.duration * 100).toFixed(2) : 0,
+                trend: newVideo.duration > original.duration ? '增加' : '减少'
+            },
+            
+            // 估算码率变化
+            bitrateChange: {
+                original: this.formatBitrate(original.estimatedBitrate),
+                new: this.formatBitrate(newVideo.estimatedBitrate),
+                absolute: newVideo.estimatedBitrate - original.estimatedBitrate,
+                percentage: original.estimatedBitrate > 0 ? ((newVideo.estimatedBitrate - original.estimatedBitrate) / original.estimatedBitrate * 100).toFixed(2) : '无法计算',
+                trend: original.estimatedBitrate > 0 ? (newVideo.estimatedBitrate > original.estimatedBitrate ? '提高' : '降低') : '无法比较'
             }
         };
     }
