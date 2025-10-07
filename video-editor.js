@@ -1953,7 +1953,7 @@ class VideoEditor {
 
     // 替换源文件
     replaceSourceFile() {
-        if (!this.processedVideo) {
+        if (!this.processedVideo && !this.processedVideoPath) {
             this.showError('没有处理后的视频文件');
             return;
         }
@@ -2185,8 +2185,14 @@ class VideoEditor {
 
     // 方式1: 真正覆盖原文件（Chrome/Edge）
     async overwriteOriginalFile() {
-        if (!this.processedVideo) {
+        if (!this.processedVideo && !this.processedVideoPath) {
             this.showError('没有处理后的视频文件');
+            return;
+        }
+        
+        // 如果是超大文件，提示用户使用下载方式
+        if (this.processedVideoPath && !this.processedVideo) {
+            this.showError('超大文件无法直接覆盖原文件，请使用下载方式');
             return;
         }
         
@@ -2389,16 +2395,25 @@ class VideoEditor {
 
     // 下载替换文件
     downloadReplacementFile(fileName) {
-        const url = URL.createObjectURL(this.processedVideo);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        console.log(`📥 替换文件已下载: ${fileName}`);
+        if (this.processedVideo) {
+            // 正常文件下载
+            const url = URL.createObjectURL(this.processedVideo);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            console.log(`📥 替换文件已下载: ${fileName}`);
+        } else if (this.processedVideoPath) {
+            // 超大文件下载
+            console.log('📦 超大文件下载，使用Electron API');
+            this.downloadLargeFile(this.processedVideoPath, fileName);
+        } else {
+            this.showError('没有可下载的文件');
+        }
     }
 
     // 重置编辑器
