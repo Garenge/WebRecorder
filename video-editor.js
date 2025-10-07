@@ -213,6 +213,7 @@ class VideoEditor {
                 console.log('🚀 检测到Electron环境，跳过FFmpeg.wasm加载');
                 this.showProcessingStatus('检测到Electron环境，使用原生FFmpeg', 100);
                 this.useWebAPI = false; // 标记为使用原生FFmpeg
+                this.ffmpeg = 'electron'; // 设置一个标记，表示使用Electron原生FFmpeg
                 return;
             }
             
@@ -1223,6 +1224,12 @@ class VideoEditor {
 
     // 使用FFmpeg.wasm处理视频
     async processVideoWithFFmpeg() {
+        // 如果在Electron环境中，重定向到原生FFmpeg处理
+        if (this.ffmpeg === 'electron') {
+            console.log('🚀 检测到Electron环境，重定向到原生FFmpeg处理');
+            return await this.processVideoWithNativeFFmpeg();
+        }
+        
         if (!this.ffmpeg) {
             throw new Error('FFmpeg未初始化');
         }

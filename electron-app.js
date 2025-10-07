@@ -177,28 +177,29 @@ class ElectronVideoProcessor {
                     console.log(`💾 临时文件已保存: ${actualInputPath}`);
                 }
                 
+                // 确保输出文件也写入到临时目录
+                const os = require('os');
+                const tempDir = os.tmpdir();
+                const actualOutputPath = path.join(tempDir, options.outputPath);
+                
                 const result = await this.processVideoWithNativeFFmpeg(
                     actualInputPath,
-                    options.outputPath,
+                    actualOutputPath,
                     options
                 );
                 
                 // 读取处理后的视频文件
                 if (result.success) {
-                    const fs = require('fs');
-                    const path = require('path');
-                    const outputPath = path.join(process.cwd(), result.outputPath);
-                    
-                    if (fs.existsSync(outputPath)) {
-                        const videoData = fs.readFileSync(outputPath);
+                    if (fs.existsSync(actualOutputPath)) {
+                        const videoData = fs.readFileSync(actualOutputPath);
                         result.videoData = Array.from(videoData); // 转换为Array
                         result.fileSize = videoData.length;
                         console.log(`📁 处理后的视频文件大小: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
                         
                         // 清理输出文件
                         try {
-                            fs.unlinkSync(outputPath);
-                            console.log(`🗑️ 输出文件已清理: ${outputPath}`);
+                            fs.unlinkSync(actualOutputPath);
+                            console.log(`🗑️ 输出文件已清理: ${actualOutputPath}`);
                         } catch (cleanupError) {
                             console.warn('⚠️ 清理输出文件失败:', cleanupError);
                         }
