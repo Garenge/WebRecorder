@@ -154,6 +154,31 @@ class ElectronVideoProcessor {
         });
     }
 
+    // 流式读取文件
+    async readFileStream(filePath) {
+        return new Promise((resolve, reject) => {
+            const fs = require('fs');
+            const chunks = [];
+            
+            const stream = fs.createReadStream(filePath);
+            
+            stream.on('data', (chunk) => {
+                chunks.push(chunk);
+            });
+            
+            stream.on('end', () => {
+                const buffer = Buffer.concat(chunks);
+                console.log(`📦 流式读取完成: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+                resolve(Array.from(buffer));
+            });
+            
+            stream.on('error', (error) => {
+                console.error('❌ 流式读取失败:', error);
+                reject(error);
+            });
+        });
+    }
+
     // 设置IPC通信
     setupIPC() {
         // 处理视频处理请求
@@ -192,16 +217,33 @@ class ElectronVideoProcessor {
                 if (result.success) {
                     if (fs.existsSync(actualOutputPath)) {
                         const videoData = fs.readFileSync(actualOutputPath);
-                        result.videoData = Array.from(videoData); // 转换为Array
                         result.fileSize = videoData.length;
                         console.log(`📁 处理后的视频文件大小: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
                         
-                        // 清理输出文件
-                        try {
-                            fs.unlinkSync(actualOutputPath);
-                            console.log(`🗑️ 输出文件已清理: ${actualOutputPath}`);
-                        } catch (cleanupError) {
-                            console.warn('⚠️ 清理输出文件失败:', cleanupError);
+                        // 对于大文件，使用流式传输而不是一次性转换
+                        if (result.fileSize > 100 * 1024 * 1024) { // 大于100MB
+                            console.log('📦 大文件检测，使用流式传输');
+                            result.videoData = null; // 不传输数据，让前端通过文件路径处理
+                            result.outputPath = actualOutputPath; // 传递文件路径
+                        } else {
+                            // 小文件直接转换
+                            try {
+                                result.videoData = Array.from(videoData);
+                            } catch (arrayError) {
+                                console.warn('⚠️ Array转换失败，使用备用方案:', arrayError.message);
+                                result.videoData = null;
+                                result.outputPath = actualOutputPath;
+                            }
+                        }
+                        
+                        // 清理输出文件（如果数据已传输）
+                        if (result.videoData) {
+                            try {
+                                fs.unlinkSync(actualOutputPath);
+                                console.log(`🗑️ 输出文件已清理: ${actualOutputPath}`);
+                            } catch (cleanupError) {
+                                console.warn('⚠️ 清理输出文件失败:', cleanupError);
+                            }
                         }
                     }
                 }
@@ -236,6 +278,32 @@ class ElectronVideoProcessor {
                 nodeVersion: process.version,
                 electronVersion: process.versions.electron
             };
+        });
+
+        // 读取文件
+        ipcMain.handle('read-file', async (event, filePath) => {
+            try {
+                if (!fs.existsSync(filePath)) {
+                    throw new Error('文件不存在');
+                }
+                
+                const stats = fs.statSync(filePath);
+                const fileSize = stats.size;
+                console.log(`📖 读取文件: ${filePath} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+                
+                // 对于大文件，使用流式读取
+                if (fileSize > 100 * 1024 * 1024) { // 大于100MB
+                    console.log('📦 大文件流式读取');
+                    return await this.readFileStream(filePath);
+                } else {
+                    // 小文件直接读取
+                    const fileData = fs.readFileSync(filePath);
+                    return Array.from(fileData);
+                }
+            } catch (error) {
+                console.error('❌ 读取文件失败:', error);
+                throw error;
+            }
         });
     }
 }

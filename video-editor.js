@@ -1684,6 +1684,24 @@ class VideoEditor {
                     this.processedVideo = new Blob([videoArray], { type: outputFormat.mimeType });
                     
                     console.log(`📁 处理后的视频已创建: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+                } else if (result.outputPath) {
+                    // 大文件情况：使用文件路径
+                    console.log('📦 大文件处理，使用文件路径:', result.outputPath);
+                    
+                    // 对于大文件，我们需要通过Electron API读取文件
+                    try {
+                        const fileData = await window.electronAPI.readFile(result.outputPath);
+                        if (fileData) {
+                            const outputFormat = this.getOutputFormat();
+                            this.processedVideo = new Blob([fileData], { type: outputFormat.mimeType });
+                            console.log(`📁 大文件已读取: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+                        }
+                    } catch (readError) {
+                        console.error('❌ 读取大文件失败:', readError);
+                        throw new Error('无法读取处理后的视频文件');
+                    }
+                } else {
+                    throw new Error('没有收到处理后的视频数据');
                 }
                 
                 // 显示耗时信息给用户

@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 获取系统信息
     getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
     
+    // 读取文件
+    readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+    
     // 监听FFmpeg进度
     onFFmpegProgress: (callback) => {
         ipcRenderer.on('ffmpeg-progress', (event, data) => callback(data));
