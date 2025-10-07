@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const ffmpegPath = require('ffmpeg-static');
 
 class ElectronVideoProcessor {
     constructor() {
@@ -91,7 +92,7 @@ class ElectronVideoProcessor {
             console.log('🚀 执行原生FFmpeg命令:', 'ffmpeg', ffmpegArgs.join(' '));
 
             // 启动FFmpeg进程
-            const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+            const ffmpegProcess = spawn(ffmpegPath, ffmpegArgs);
 
             let stderr = '';
             let progress = 0;
@@ -142,7 +143,7 @@ class ElectronVideoProcessor {
     // 检查系统FFmpeg
     async checkSystemFFmpeg() {
         return new Promise((resolve) => {
-            const ffmpegProcess = spawn('ffmpeg', ['-version']);
+            const ffmpegProcess = spawn(ffmpegPath, ['-version']);
             
             ffmpegProcess.on('close', (code) => {
                 resolve(code === 0);

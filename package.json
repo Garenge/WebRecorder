@@ -36,7 +36,8 @@
     "files": [
       "**/*",
       "!node_modules/**/*",
-      "!dist/**/*"
+      "!dist/**/*",
+      "node_modules/ffmpeg-static/**/*"
     ],
     "mac": {
       "category": "public.app-category.video",
