@@ -35,6 +35,14 @@ class VideoEditor {
         
         // 标记初始化状态
         this.comparisonInitialized = false;
+        
+        // 文件系统权限相关
+        this.fileSystemAccessSupported = false;
+        this.permissionGranted = false;
+        this.selectedFileHandle = null;
+        this.permissionChecked = false; // 权限检查状态
+        this.permissionCheckPromise = null; // 权限检查Promise
+        this.replacementOptionsVisible = false;
     }
 
     // 初始化DOM元素
@@ -521,6 +529,9 @@ class VideoEditor {
             
             // 启用处理按钮
             this.processVideoBtn.disabled = false;
+            
+            // 在视频加载完成后，提示用户进行权限授权
+            await this.promptPermissionOnEdit();
             
             console.log(`✅ 视频加载成功，时长: ${this.formatTime(this.videoDuration)}`);
             
@@ -1938,6 +1949,190 @@ class VideoEditor {
         this.replacementOptions.style.display = 'none';
     }
 
+    // 权限预检测和提前授权
+    async checkFileSystemPermission() {
+        // 检查浏览器支持
+        if (!window.showOpenFilePicker || !window.showSaveFilePicker) {
+            this.fileSystemAccessSupported = false;
+            return false;
+        }
+        
+        this.fileSystemAccessSupported = true;
+        
+        // 如果已经检查过权限，直接返回结果
+        if (this.permissionChecked) {
+            return this.permissionGranted;
+        }
+        
+        // 如果正在检查权限，返回检查Promise
+        if (this.permissionCheckPromise) {
+            return await this.permissionCheckPromise;
+        }
+        
+        // 开始权限检查
+        this.permissionCheckPromise = this.performPermissionCheck();
+        const result = await this.permissionCheckPromise;
+        this.permissionChecked = true;
+        
+        return result;
+    }
+    
+    // 执行权限检查
+    async performPermissionCheck() {
+        try {
+            console.log('🔍 开始文件系统权限预检测...');
+            this.showProcessingStatus('正在检查文件系统权限...', 10);
+            
+            // 让用户选择文件进行权限测试
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Video files',
+                    accept: {
+                        'video/*': ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv']
+                    }
+                }],
+                excludeAcceptAllOption: false,
+                multiple: false
+            });
+            
+            this.showProcessingStatus('正在请求文件写入权限...', 30);
+            
+            // 请求写权限
+            const permission = await fileHandle.requestPermission({ mode: 'readwrite' });
+            
+            if (permission === 'granted') {
+                this.permissionGranted = true;
+                this.selectedFileHandle = fileHandle;
+                this.showProcessingStatus('✅ 文件权限已授权，可以安全覆盖文件', 100);
+                console.log('✅ 文件系统权限检查通过');
+                
+                // 显示权限状态提示
+                this.showPermissionStatus(true);
+                
+                return true;
+            } else {
+                this.permissionGranted = false;
+                this.showProcessingStatus('❌ 文件权限被拒绝，将使用下载模式', 100);
+                console.log('❌ 文件系统权限被拒绝');
+                
+                // 显示权限状态提示
+                this.showPermissionStatus(false);
+                
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('❌ 权限检查失败:', error);
+            this.permissionGranted = false;
+            this.showProcessingStatus('⚠️ 权限检查失败，将使用下载模式', 100);
+            
+            // 显示权限状态提示
+            this.showPermissionStatus(false);
+            
+            return false;
+        }
+    }
+    
+    // 显示权限状态
+    showPermissionStatus(granted) {
+        const statusElement = document.getElementById('permissionStatus');
+        if (!statusElement) return;
+        
+        if (granted) {
+            statusElement.innerHTML = `
+                <div style="color: #10b981; font-size: 14px; margin-top: 10px;">
+                    ✅ 文件权限已授权 - 可以直接覆盖原文件
+                </div>
+            `;
+        } else {
+            statusElement.innerHTML = `
+                <div style="color: #f59e0b; font-size: 14px; margin-top: 10px;">
+                    ⚠️ 文件权限未授权 - 将使用下载模式
+                </div>
+            `;
+        }
+    }
+    
+    // 在编辑开始时提示权限授权
+    async promptPermissionOnEdit() {
+        if (!this.fileSystemAccessSupported) {
+            return;
+        }
+        
+        if (!this.permissionChecked) {
+            const granted = await this.checkFileSystemPermission();
+            if (!granted) {
+                // 显示权限提示对话框
+                this.showPermissionDialog();
+            }
+        }
+    }
+    
+    // 显示权限提示对话框
+    showPermissionDialog() {
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        `;
+        
+        dialog.innerHTML = `
+            <div style="
+                background: white;
+                padding: 30px;
+                border-radius: 12px;
+                max-width: 500px;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            ">
+                <h3 style="margin: 0 0 15px 0; color: #1f2937;">🔐 文件权限授权</h3>
+                <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.5;">
+                    为了能够直接覆盖原文件（而不是下载新文件），需要授权文件写入权限。
+                </p>
+                <p style="margin: 0 0 20px 0; color: #6b7280; line-height: 1.5;">
+                    授权后，处理完成的视频可以直接替换原文件，无需手动删除。
+                </p>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button id="skipPermission" style="
+                        padding: 10px 20px;
+                        border: 1px solid #d1d5db;
+                        background: white;
+                        color: #6b7280;
+                        border-radius: 6px;
+                        cursor: pointer;
+                    ">跳过（使用下载模式）</button>
+                    <button id="grantPermission" style="
+                        padding: 10px 20px;
+                        background: #3b82f6;
+                        color: white;
+                        border: none;
+                        border-radius: 6px;
+                        cursor: pointer;
+                    ">授权文件权限</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(dialog);
+        
+        // 绑定事件
+        document.getElementById('skipPermission').onclick = () => {
+            document.body.removeChild(dialog);
+        };
+        
+        document.getElementById('grantPermission').onclick = async () => {
+            document.body.removeChild(dialog);
+            await this.checkFileSystemPermission();
+        };
+    }
+
     // 方式1: 真正覆盖原文件（Chrome/Edge）
     async overwriteOriginalFile() {
         if (!this.processedVideo) {
@@ -1953,34 +2148,49 @@ class VideoEditor {
         }
         
         try {
-            this.showProcessingStatus('请选择要覆盖的原文件...', 20);
-            
-            // 让用户选择原文件
-            const [fileHandle] = await window.showOpenFilePicker({
-                types: [{
-                    description: 'Video files',
-                    accept: {
-                        'video/*': ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv']
-                    }
-                }],
-                excludeAcceptAllOption: false,
-                multiple: false
-            });
-            
-            this.showProcessingStatus('正在检查文件权限...', 40);
-            
-            // 检查写权限
-            const permission = await fileHandle.requestPermission({ mode: 'readwrite' });
-            if (permission !== 'granted') {
-                throw new Error('没有文件写入权限，请重新选择文件并授权');
+            // 如果已经有权限，直接使用
+            if (this.permissionGranted && this.selectedFileHandle) {
+                this.showProcessingStatus('正在覆盖文件...', 60);
+                
+                // 创建可写流并覆盖文件
+                const writable = await this.selectedFileHandle.createWritable();
+                await writable.write(this.processedVideo);
+                await writable.close();
+            } else {
+                // 如果没有权限，先进行权限检查
+                this.showProcessingStatus('请选择要覆盖的原文件...', 20);
+                
+                // 让用户选择原文件
+                const [fileHandle] = await window.showOpenFilePicker({
+                    types: [{
+                        description: 'Video files',
+                        accept: {
+                            'video/*': ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv']
+                        }
+                    }],
+                    excludeAcceptAllOption: false,
+                    multiple: false
+                });
+                
+                this.showProcessingStatus('正在检查文件权限...', 40);
+                
+                // 检查写权限
+                const permission = await fileHandle.requestPermission({ mode: 'readwrite' });
+                if (permission !== 'granted') {
+                    throw new Error('没有文件写入权限，请重新选择文件并授权');
+                }
+                
+                // 保存文件句柄供下次使用
+                this.selectedFileHandle = fileHandle;
+                this.permissionGranted = true;
+                
+                this.showProcessingStatus('正在覆盖文件...', 60);
+                
+                // 创建可写流并覆盖文件
+                const writable = await fileHandle.createWritable();
+                await writable.write(this.processedVideo);
+                await writable.close();
             }
-            
-            this.showProcessingStatus('正在覆盖文件...', 60);
-            
-            // 创建可写流并覆盖文件
-            const writable = await fileHandle.createWritable();
-            await writable.write(this.processedVideo);
-            await writable.close();
             
             this.showProcessingStatus('文件覆盖成功！', 100);
             console.log('✅ 原文件已成功覆盖');
