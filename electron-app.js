@@ -3,15 +3,57 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-// 获取FFmpeg路径
+// 获取FFmpeg路径 - 优先使用extraResources中的ffmpeg
 let ffmpegPath;
-try {
-    // 首先尝试使用ffmpeg-static
-    ffmpegPath = require('ffmpeg-static');
-} catch (error) {
-    // 如果ffmpeg-static不可用，尝试使用extraResources中的ffmpeg
-    const path = require('path');
+
+// 在打包后的应用中，优先使用extraResources中的ffmpeg
+if (process.resourcesPath) {
     ffmpegPath = path.join(process.resourcesPath, 'ffmpeg');
+    console.log('🔍 使用extraResources路径:', ffmpegPath);
+} else {
+    // 开发环境中使用ffmpeg-static
+    try {
+        ffmpegPath = require('ffmpeg-static');
+        console.log('🔍 使用ffmpeg-static路径:', ffmpegPath);
+    } catch (error) {
+        console.log('⚠️ ffmpeg-static不可用:', error.message);
+        ffmpegPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg');
+        console.log('🔍 使用本地ffmpeg-static路径:', ffmpegPath);
+    }
+}
+
+// 如果主要路径不存在，尝试其他可能的路径
+if (!fs.existsSync(ffmpegPath)) {
+    console.log('🔍 尝试其他可能的FFmpeg路径...');
+    
+    const possiblePaths = [
+        path.join(process.resourcesPath, 'ffmpeg'),
+        path.join(__dirname, '..', 'Resources', 'ffmpeg'),
+        path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', 'ffmpeg'),
+        path.join(__dirname, 'node_modules', 'ffmpeg-static', 'ffmpeg'),
+        '/usr/local/bin/ffmpeg',
+        '/opt/homebrew/bin/ffmpeg'
+    ];
+    
+    for (const testPath of possiblePaths) {
+        console.log('🔍 测试路径:', testPath);
+        if (fs.existsSync(testPath)) {
+            ffmpegPath = testPath;
+            console.log('✅ 找到FFmpeg路径:', ffmpegPath);
+            break;
+        }
+    }
+}
+
+// 验证FFmpeg路径
+console.log('🔍 FFmpeg路径:', ffmpegPath);
+console.log('🔍 文件存在:', fs.existsSync(ffmpegPath));
+if (fs.existsSync(ffmpegPath)) {
+    const stats = fs.statSync(ffmpegPath);
+    console.log('🔍 文件类型:', stats.isFile() ? '文件' : '目录');
+    console.log('🔍 文件大小:', (stats.size / 1024 / 1024).toFixed(2), 'MB');
+} else {
+    console.error('❌ FFmpeg文件不存在！');
 }
 
 class ElectronVideoProcessor {
@@ -100,7 +142,26 @@ class ElectronVideoProcessor {
 
             console.log('🚀 执行原生FFmpeg命令:', 'ffmpeg', ffmpegArgs.join(' '));
 
-            // 启动FFmpeg进程
+            // 启动FFmpeg进程前再次验证路径
+            if (!fs.existsSync(ffmpegPath)) {
+                throw new Error(`FFmpeg文件不存在: ${ffmpegPath}`);
+            }
+            
+            // 检查文件权限
+            try {
+                fs.accessSync(ffmpegPath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK);
+            } catch (permError) {
+                console.error('❌ FFmpeg文件权限错误:', permError.message);
+                // 尝试添加执行权限
+                try {
+                    fs.chmodSync(ffmpegPath, '755');
+                    console.log('✅ 已添加FFmpeg执行权限');
+                } catch (chmodError) {
+                    console.error('❌ 无法添加执行权限:', chmodError.message);
+                }
+            }
+            
+            console.log('🚀 启动FFmpeg进程:', ffmpegPath);
             const ffmpegProcess = spawn(ffmpegPath, ffmpegArgs);
 
             let stderr = '';
@@ -117,12 +178,18 @@ class ElectronVideoProcessor {
                     const currentTime = parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds);
                     progress = Math.min((currentTime / duration) * 100, 100);
                     
-                    // 发送进度更新到渲染进程
-                    this.mainWindow.webContents.send('ffmpeg-progress', {
-                        progress: Math.round(progress),
-                        time: currentTime,
-                        duration: duration
-                    });
+                    // 发送进度更新到渲染进程（检查窗口是否仍然存在）
+                    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+                        try {
+                            this.mainWindow.webContents.send('ffmpeg-progress', {
+                                progress: Math.round(progress),
+                                time: currentTime,
+                                duration: duration
+                            });
+                        } catch (error) {
+                            console.warn('⚠️ 发送进度更新失败:', error.message);
+                        }
+                    }
                 }
             });
 
@@ -146,20 +213,63 @@ class ElectronVideoProcessor {
                 console.error('❌ FFmpeg进程错误:', error);
                 reject(error);
             });
+
+            // 处理进程退出
+            ffmpegProcess.on('exit', (code, signal) => {
+                if (signal) {
+                    console.log(`🔍 FFmpeg进程被信号终止: ${signal}`);
+                }
+            });
+
+            // 处理标准输出错误
+            ffmpegProcess.stdout.on('error', (error) => {
+                if (error.code !== 'EPIPE') {
+                    console.warn('⚠️ FFmpeg stdout错误:', error.message);
+                }
+            });
+
+            ffmpegProcess.stderr.on('error', (error) => {
+                if (error.code !== 'EPIPE') {
+                    console.warn('⚠️ FFmpeg stderr错误:', error.message);
+                }
+            });
         });
     }
 
     // 检查系统FFmpeg
     async checkSystemFFmpeg() {
         return new Promise((resolve) => {
+            // 检查FFmpeg路径是否存在
+            if (!fs.existsSync(ffmpegPath)) {
+                console.error('❌ FFmpeg路径不存在:', ffmpegPath);
+                resolve(false);
+                return;
+            }
+            
+            console.log('🔍 检查FFmpeg可用性:', ffmpegPath);
             const ffmpegProcess = spawn(ffmpegPath, ['-version']);
             
             ffmpegProcess.on('close', (code) => {
+                console.log('🔍 FFmpeg版本检查结果:', code === 0 ? '✅ 可用' : '❌ 不可用');
                 resolve(code === 0);
             });
             
-            ffmpegProcess.on('error', () => {
+            ffmpegProcess.on('error', (error) => {
+                console.error('❌ FFmpeg进程错误:', error.message);
                 resolve(false);
+            });
+
+            // 处理标准输出错误，忽略EPIPE
+            ffmpegProcess.stdout.on('error', (error) => {
+                if (error.code !== 'EPIPE') {
+                    console.warn('⚠️ FFmpeg stdout错误:', error.message);
+                }
+            });
+
+            ffmpegProcess.stderr.on('error', (error) => {
+                if (error.code !== 'EPIPE') {
+                    console.warn('⚠️ FFmpeg stderr错误:', error.message);
+                }
             });
         });
     }
