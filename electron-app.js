@@ -3,7 +3,16 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const ffmpegPath = require('ffmpeg-static');
+// 获取FFmpeg路径
+let ffmpegPath;
+try {
+    // 首先尝试使用ffmpeg-static
+    ffmpegPath = require('ffmpeg-static');
+} catch (error) {
+    // 如果ffmpeg-static不可用，尝试使用extraResources中的ffmpeg
+    const path = require('path');
+    ffmpegPath = path.join(process.resourcesPath, 'ffmpeg');
+}
 
 class ElectronVideoProcessor {
     constructor() {

@@ -39,6 +39,12 @@
       "!dist/**/*",
       "node_modules/ffmpeg-static/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg",
+        "to": "ffmpeg"
+      }
+    ],
     "mac": {
       "category": "public.app-category.video",
       "target": "dmg"
