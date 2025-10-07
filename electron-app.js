@@ -158,8 +158,23 @@ class ElectronVideoProcessor {
     async readFileStream(filePath) {
         return new Promise((resolve, reject) => {
             const fs = require('fs');
-            const chunks = [];
             
+            // 对于大文件，直接返回文件路径，不读取内容
+            const stats = fs.statSync(filePath);
+            const fileSize = stats.size;
+            
+            if (fileSize > 50 * 1024 * 1024) { // 大于50MB
+                console.log(`📦 超大文件检测 (${(fileSize / 1024 / 1024).toFixed(2)} MB)，返回文件路径`);
+                resolve({ 
+                    isFilePath: true, 
+                    filePath: filePath,
+                    fileSize: fileSize 
+                });
+                return;
+            }
+            
+            // 中等大小文件使用流式读取
+            const chunks = [];
             const stream = fs.createReadStream(filePath);
             
             stream.on('data', (chunk) => {
@@ -169,7 +184,19 @@ class ElectronVideoProcessor {
             stream.on('end', () => {
                 const buffer = Buffer.concat(chunks);
                 console.log(`📦 流式读取完成: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
-                resolve(Array.from(buffer));
+                
+                // 安全地转换为Array，避免长度错误
+                try {
+                    const arrayData = Array.from(buffer);
+                    resolve(arrayData);
+                } catch (arrayError) {
+                    console.warn('⚠️ Array转换失败，返回文件路径:', arrayError.message);
+                    resolve({ 
+                        isFilePath: true, 
+                        filePath: filePath,
+                        fileSize: buffer.length 
+                    });
+                }
             });
             
             stream.on('error', (error) => {
@@ -292,16 +319,71 @@ class ElectronVideoProcessor {
                 console.log(`📖 读取文件: ${filePath} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
                 
                 // 对于大文件，使用流式读取
-                if (fileSize > 100 * 1024 * 1024) { // 大于100MB
+                if (fileSize > 50 * 1024 * 1024) { // 大于50MB
                     console.log('📦 大文件流式读取');
                     return await this.readFileStream(filePath);
                 } else {
                     // 小文件直接读取
                     const fileData = fs.readFileSync(filePath);
-                    return Array.from(fileData);
+                    try {
+                        return Array.from(fileData);
+                    } catch (arrayError) {
+                        console.warn('⚠️ Array转换失败，返回文件路径:', arrayError.message);
+                        return { 
+                            isFilePath: true, 
+                            filePath: filePath,
+                            fileSize: fileSize 
+                        };
+                    }
                 }
             } catch (error) {
                 console.error('❌ 读取文件失败:', error);
+                throw error;
+            }
+        });
+
+        // 下载文件
+        ipcMain.handle('download-file', async (event, filePath, filename) => {
+            try {
+                if (!fs.existsSync(filePath)) {
+                    throw new Error('文件不存在');
+                }
+                
+                const { dialog } = require('electron');
+                const os = require('os');
+                
+                // 获取下载目录
+                const downloadsPath = path.join(os.homedir(), 'Downloads');
+                const targetPath = path.join(downloadsPath, filename);
+                
+                console.log(`📥 下载文件: ${filePath} -> ${targetPath}`);
+                
+                // 复制文件到下载目录
+                fs.copyFileSync(filePath, targetPath);
+                
+                console.log(`✅ 文件下载完成: ${targetPath}`);
+                
+                // 显示保存对话框
+                const result = await dialog.showSaveDialog(this.mainWindow, {
+                    defaultPath: targetPath,
+                    filters: [
+                        { name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] },
+                        { name: 'All Files', extensions: ['*'] }
+                    ]
+                });
+                
+                if (!result.canceled) {
+                    // 如果用户选择了不同的路径，复制到新位置
+                    if (result.filePath !== targetPath) {
+                        fs.copyFileSync(targetPath, result.filePath);
+                        console.log(`📁 文件已保存到: ${result.filePath}`);
+                    }
+                }
+                
+                return { success: true, path: result.filePath || targetPath };
+                
+            } catch (error) {
+                console.error('❌ 下载文件失败:', error);
                 throw error;
             }
         });

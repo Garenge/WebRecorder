@@ -1692,9 +1692,18 @@ class VideoEditor {
                     try {
                         const fileData = await window.electronAPI.readFile(result.outputPath);
                         if (fileData) {
-                            const outputFormat = this.getOutputFormat();
-                            this.processedVideo = new Blob([fileData], { type: outputFormat.mimeType });
-                            console.log(`📁 大文件已读取: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+                            if (fileData.isFilePath) {
+                                // 超大文件，无法读取到内存，使用下载方式
+                                console.log('📦 超大文件检测，使用下载方式');
+                                this.processedVideo = null; // 标记为需要下载
+                                this.processedVideoPath = fileData.filePath;
+                                console.log(`📁 超大文件路径: ${fileData.filePath}`);
+                            } else {
+                                // 正常文件数据
+                                const outputFormat = this.getOutputFormat();
+                                this.processedVideo = new Blob([fileData], { type: outputFormat.mimeType });
+                                console.log(`📁 大文件已读取: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+                            }
                         }
                     } catch (readError) {
                         console.error('❌ 读取大文件失败:', readError);
@@ -1896,11 +1905,7 @@ class VideoEditor {
 
     // 下载视频
     downloadVideo() {
-        if (!this.processedVideo) return;
-        
-        const url = URL.createObjectURL(this.processedVideo);
-        const a = document.createElement('a');
-        a.href = url;
+        if (!this.processedVideo && !this.processedVideoPath) return;
         
         // 获取当前选择的格式
         const selectedFormat = this.outputFormatSelect.value;
@@ -1910,13 +1915,40 @@ class VideoEditor {
         const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
         const filename = `cropped_video_${selectedFormat.toUpperCase()}_${quality}_${timestamp}.${selectedFormat}`;
         
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        console.log(`📥 视频下载完成: ${selectedFormat.toUpperCase()}格式 (${quality}质量)`);
+        if (this.processedVideo) {
+            // 正常文件下载
+            const url = URL.createObjectURL(this.processedVideo);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            console.log(`📥 视频下载完成: ${selectedFormat.toUpperCase()}格式 (${quality}质量)`);
+        } else if (this.processedVideoPath) {
+            // 超大文件下载 - 使用Electron API
+            console.log('📦 超大文件下载，使用Electron API');
+            this.downloadLargeFile(this.processedVideoPath, filename);
+        }
+    }
+    
+    // 下载超大文件
+    async downloadLargeFile(filePath, filename) {
+        try {
+            // 使用Electron API下载文件
+            if (window.electronAPI && window.electronAPI.downloadFile) {
+                await window.electronAPI.downloadFile(filePath, filename);
+                console.log(`📥 超大文件下载完成: ${filename}`);
+            } else {
+                // 降级方案：提示用户手动复制文件
+                this.showError(`超大文件无法自动下载，请手动复制文件：\n${filePath}`);
+            }
+        } catch (error) {
+            console.error('❌ 超大文件下载失败:', error);
+            this.showError('超大文件下载失败: ' + error.message);
+        }
     }
 
     // 替换源文件

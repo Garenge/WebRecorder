@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 读取文件
     readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
     
+    // 下载文件
+    downloadFile: (filePath, filename) => ipcRenderer.invoke('download-file', filePath, filename),
+    
     // 监听FFmpeg进度
     onFFmpegProgress: (callback) => {
         ipcRenderer.on('ffmpeg-progress', (event, data) => callback(data));
